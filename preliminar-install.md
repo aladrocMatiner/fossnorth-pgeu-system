@@ -16,9 +16,16 @@
 ## 3. Prerequisites
 
 ### 3.1 System Packages
-- Core build/deps: `build-essential`, `python3-dev`, `libffi-dev`, `libssl-dev`, `libjpeg-dev`, `libpng-dev`, `postgresql-client`, `postgresql-server-dev-*`, `virtualenv`, `uwsgi`, `uwsgi-plugin-python3`.
+- Core build/deps: `build-essential`, `python3-dev`, `libffi-dev`, `libssl-dev`, `libjpeg-dev`, `libpng-dev`, `postgresql-client`, `postgresql-server-dev-*`, `virtualenv` (or `python3-virtualenv`), `uwsgi`, `uwsgi-plugin-python3`.
 - Fonts for invoices/tickets: `fonts-dejavu-core` (Bullseye+) or `ttf-dejavu`.
 - Optional tooling: `psql`, `git`, `nginx`, `certbot`, `redis` (if later needed for caching).
+- On a fresh Debian/Ubuntu host run, for example:
+  ```bash
+  sudo apt-get update
+  sudo apt-get install git virtualenv python3-virtualenv build-essential python3-dev \
+       libffi-dev libssl-dev libjpeg-dev libpng-dev postgresql-client postgresql-server-dev-all \
+       uwsgi uwsgi-plugin-python3 fonts-dejavu-core
+  ```
 
 ### 3.2 Python Dependencies
 - Install via `pip install -r tools/devsetup/dev_requirements.txt` inside the project virtualenv; contains Django 4.2.x, psycopg2-binary, Pillow, Jinja2, ReportLab, JWT, OAuth, etc.
@@ -33,8 +40,12 @@
 ## 4. Installation Flow
 
 ### Step 1 – Fetch Source & Create Virtualenv
-1. Ensure `git` is installed (`sudo apt-get install git`).
-2. Pick a writable location (e.g., `/opt/pgeu-system` will require `sudo chown` or cloning as root).
+1. Ensure `git` and `virtualenv` are installed (see packages list above).
+2. Pick a writable location (e.g., `/opt/pgeu-system`); if using `/opt`, prepare it:
+   ```bash
+   sudo mkdir -p /opt/pgeu-system
+   sudo chown "$USER": /opt/pgeu-system
+   ```
 3. `git clone https://github.com/pgeu/pgeu-system.git /opt/pgeu-system`.
 4. `cd /opt/pgeu-system && virtualenv --python=python3 venv`.
 5. `source venv/bin/activate` (or create helper shim similar to `tools/devsetup/dev_setup.sh`).
