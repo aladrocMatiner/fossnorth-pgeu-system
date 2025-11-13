@@ -1,14 +1,13 @@
-version: "3.9"
-
 services:
   web:
     build:
       context: .
       dockerfile: docker-compose/Dockerfile
+    network_mode: host
     env_file:
       - docker-compose/.env
     environment:
-      DJANGO_DB_HOST: db
+      DJANGO_DB_HOST: 127.0.0.1
       DJANGO_DB_PORT: 5432
       DJANGO_DB_NAME: ${POSTGRES_DB:-pgeu}
       DJANGO_DB_USER: ${POSTGRES_USER:-pgeu}
@@ -17,8 +16,6 @@ services:
       - ./pgeu-system:/app
       - web-media:/app/media
       - web-static:/app/staticfiles
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -26,6 +23,7 @@ services:
 
   db:
     image: postgres:15
+    network_mode: host
     env_file:
       - docker-compose/.env
     environment:

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -11,7 +11,12 @@ RUN apt-get update && \
       build-essential \
       libpq-dev \
       libjpeg-dev \
+      libfreetype6-dev \
       libpng-dev \
+      libcairo2 \
+      libpango-1.0-0 \
+      libpangocairo-1.0-0 \
+      libmagic1 \
       libffi-dev \
       libssl-dev \
       fonts-dejavu-core && \

@@ -14,11 +14,10 @@ collects static assets automatically.
    newgrp docker
    ```
    (Use the official docs for other distributions or if you need a locked-down install.)
-2. **Git** to clone both this helper repository and the upstream
-   [`pgeu-system`](https://github.com/pgeu/pgeu-system) source:
+2. **Git + curl** to clone the repositories and fetch the Docker install script:
    ```bash
    sudo apt-get update
-   sudo apt-get install -y git
+   sudo apt-get install -y git curl
    ```
 
 ## 2. Directory Layout
@@ -33,7 +32,7 @@ fossnorth-pgeu-system/
 Clone the helper repo, then fetch the application next to it:
 
 ```bash
-git clone https://github.com/aladroc/fossnorth-pgeu-system.git
+git clone https://github.com/aladrocMatiner/fossnorth-pgeu-system.git
 cd fossnorth-pgeu-system
 git clone https://github.com/pgeu/pgeu-system.git
 ```
