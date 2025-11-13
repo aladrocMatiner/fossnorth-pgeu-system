@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 FAILURES=0
 
 info()  { printf '[-] %s\n' "$1"; }
@@ -47,11 +48,11 @@ info "Checking repository structure…"
 [[ -f "$ROOT_DIR/docker-compose.yml" ]] && pass "Found docker-compose.yml" || fail "Missing docker-compose.yml"
 [[ -d "$ROOT_DIR/pgeu-system" ]] && pass "Found pgeu-system/" || fail "Missing pgeu-system/"
 
-ENV_FILE="$ROOT_DIR/docker-compose/.env"
+ENV_FILE="docker-compose/.env"
 if [[ -f "$ENV_FILE" ]]; then
   pass "Found docker-compose/.env"
   if grep -q '^DJANGO_DEBUG=true' "$ENV_FILE"; then
-    fail "DJANGO_DEBUG must be false in $ENV_FILE"
+    fail "DJANGO_DEBUG must be false in docker-compose/.env"
   else
     pass "DJANGO_DEBUG is set to false"
   fi
@@ -59,7 +60,7 @@ else
   fail "Missing docker-compose/.env"
 fi
 
-REQ_FILE="$ROOT_DIR/pgeu-system/tools/devsetup/dev_requirements.txt"
+REQ_FILE="pgeu-system/tools/devsetup/dev_requirements.txt"
 info "Checking critical dependency pins…"
 check_file_contains "pycryptodomex>=3.19.1" "$REQ_FILE" "pycryptodomex==3.19.1"
 check_file_contains "qrcode==7.4.2" "$REQ_FILE" "qrcode==7.4.2"
