@@ -75,6 +75,14 @@ The script validates the directory layout, required binaries (`docker`
 and `docker compose`), and critical Python pins such as
 `pycryptodomex==3.19.1`. Fix any reported issues before proceeding.
 
+### Quick HTTP Smoke Test
+After `docker compose up -d`, run:
+```bash
+./scripts/curl-check.sh
+```
+The script hits `/`, `/admin/login/`, and `/account/` using `curl`. Set
+`BASE_URL=http://your-host:8000` if you’re exposing the stack elsewhere.
+
 Media uploads, collected static files, and database data are stored in
 named Docker volumes (`web-media`, `web-static`, `pg-data`). Run
 `docker compose down -v` to tear everything down and delete persisted

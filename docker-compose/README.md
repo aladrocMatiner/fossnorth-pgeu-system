@@ -108,7 +108,15 @@ non-zero exit means something needs fixing before `docker compose up`.
   After that, `docker compose exec web pip show pycryptodomex` should
   report `3.19.1`.
 
-## 6. Persistence & Customizations
+## 6. HTTP Smoke Test
+```bash
+./scripts/curl-check.sh
+```
+This hits `/`, `/admin/login/`, and `/account/` (defaulting to
+`http://127.0.0.1:8000`). Override with
+`BASE_URL=http://your-host:8000 ./scripts/curl-check.sh` if needed.
+
+## 7. Persistence & Customizations
 - `pg-data`: PostgreSQL data directory (`docker volume ls`).
 - `web-media`: uploaded files (`/app/media` inside the container).
 - `web-static`: collected static assets.
@@ -116,7 +124,7 @@ non-zero exit means something needs fixing before `docker compose up`.
 - To run alternative commands (e.g., tests) reuse the web container:
   `docker compose run --rm web ./manage.py test`.
 
-## 7. Background Jobs & Production Notes
+## 8. Background Jobs & Production Notes
 - The compose stack only runs the main web process. For full parity with
   production you may add services based on `tools/systemd/pgeu_jobs_runner.service`
   and `pgeu_media_poster.service`.
