@@ -35,6 +35,7 @@ Clone the helper repo, then fetch the application next to it:
 git clone https://github.com/aladrocMatiner/fossnorth-pgeu-system.git
 cd fossnorth-pgeu-system
 git clone https://github.com/pgeu/pgeu-system.git
+./scripts/patch-upstream.sh
 tree -L 1
 ```
 

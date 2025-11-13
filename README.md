@@ -17,6 +17,7 @@ level flow is:
   git clone https://github.com/aladrocMatiner/fossnorth-pgeu-system.git
   cd fossnorth-pgeu-system
   git clone https://github.com/pgeu/pgeu-system.git
+  ./scripts/patch-upstream.sh
   ```
 
 ### Bring-up Steps
