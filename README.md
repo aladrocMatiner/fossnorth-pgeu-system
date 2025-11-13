@@ -13,6 +13,11 @@ level flow is:
 - Clone this helper repo *and* the upstream
   [`pgeu-system`](https://github.com/pgeu/pgeu-system) project so it sits
   under `./pgeu-system`.
+  ```bash
+  git clone https://github.com/aladrocMatiner/fossnorth-pgeu-system.git
+  cd fossnorth-pgeu-system
+  git clone https://github.com/pgeu/pgeu-system.git
+  ```
 
 ### Bring-up Steps
 1. Copy the environment template and edit secrets/hosts:
