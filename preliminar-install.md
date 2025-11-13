@@ -33,9 +33,11 @@
 ## 4. Installation Flow
 
 ### Step 1 – Fetch Source & Create Virtualenv
-1. `git clone https://github.com/pgeu/pgeu-system.git /opt/pgeu-system`.
-2. `cd /opt/pgeu-system && virtualenv --python=python3 venv`.
-3. `source venv/bin/activate` (or create helper shim similar to `tools/devsetup/dev_setup.sh`).
+1. Ensure `git` is installed (`sudo apt-get install git`).
+2. Pick a writable location (e.g., `/opt/pgeu-system` will require `sudo chown` or cloning as root).
+3. `git clone https://github.com/pgeu/pgeu-system.git /opt/pgeu-system`.
+4. `cd /opt/pgeu-system && virtualenv --python=python3 venv`.
+5. `source venv/bin/activate` (or create helper shim similar to `tools/devsetup/dev_setup.sh`).
 
 ### Step 2 – Install Python Requirements
 1. `pip install --upgrade pip`.
