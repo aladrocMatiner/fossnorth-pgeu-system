@@ -6,7 +6,7 @@
 
 ## 2. Target Environment & Assumptions
 - **OS baseline**: Debian/Ubuntu LTS (systemd available); macOS possible for dev with Homebrew.
-- **Python**: 3.11 recommended (virtualenv compatible with ≥3.7 per dev docs).
+- **Python**: 3.11 recommended (use `python3 -m venv` or `virtualenv`, both supported for ≥3.7).
 - **Database**: PostgreSQL 13+ reachable without password prompts (`.pgpass` or ident).
 - **Web stack**: `uwsgi` (or equivalent WSGI server) fronted by nginx/Apache; HTTPS termination handled by the frontend.
 - **File system**: Persistent directories for `media/` uploads, log files, and skin assets; backup strategy defined.
@@ -22,9 +22,10 @@
 - On a fresh Debian/Ubuntu host run, for example:
   ```bash
   sudo apt-get update
-  sudo apt-get install git virtualenv python3-virtualenv build-essential python3-dev \
-       libffi-dev libssl-dev libjpeg-dev libpng-dev postgresql-client postgresql-server-dev-all \
-       uwsgi uwsgi-plugin-python3 fonts-dejavu-core
+  sudo apt-get install -y git python3-venv python3-pip virtualenv python3-virtualenv \
+       build-essential python3-dev libffi-dev libssl-dev libjpeg-dev libpng-dev \
+       postgresql-client postgresql-server-dev-all uwsgi uwsgi-plugin-python3 \
+       fonts-dejavu-core
   ```
 
 ### 3.2 Python Dependencies
@@ -39,23 +40,34 @@
 
 ## 4. Installation Flow
 
-### Step 1 – Fetch Source & Create Virtualenv
-1. Ensure `git` and `virtualenv` are installed (see packages list above).
-2. Pick a writable location (e.g., `/opt/pgeu-system`); if using `/opt`, prepare it:
+### Step 1 – Fetch Source
+1. Ensure `git` is installed (see packages list above).
+2. Pick a writable location for the repository. If using `/opt`, prepare it:
    ```bash
    sudo mkdir -p /opt/pgeu-system
    sudo chown "$USER": /opt/pgeu-system
    ```
-3. `git clone https://github.com/pgeu/pgeu-system.git /opt/pgeu-system`.
-4. `cd /opt/pgeu-system && virtualenv --python=python3 venv`.
-5. `source venv/bin/activate` (or create helper shim similar to `tools/devsetup/dev_setup.sh`).
+3. Clone the source: `git clone https://github.com/pgeu/pgeu-system.git /opt/pgeu-system`.
+4. `cd /opt/pgeu-system`.
 
-### Step 2 – Install Python Requirements
+### Step 2 – Create and Activate Virtual Environment
+- Option A (preferred, built-in):
+  ```bash
+  python3 -m venv venv
+  . venv/bin/activate
+  ```
+- Option B (if you installed `virtualenv`):
+  ```bash
+  virtualenv --python=python3 venv
+  . venv/bin/activate
+  ```
+
+### Step 3 – Install Python Requirements
 1. `pip install --upgrade pip`.
 2. `pip install -r tools/devsetup/dev_requirements.txt`.
 3. Capture a lock file for production deployment.
 
-### Step 3 – Configure Settings
+### Step 4 – Configure Settings
 1. Copy `postgresqleu/local_settings.py.template` to `postgresqleu/local_settings.py`.
 2. Populate at minimum:
    ```python
@@ -77,18 +89,18 @@
    ```
 3. Add any optional overrides (mail, payment, caching, skins). Use `pgeu_system_global_settings`/`_override_settings` modules if you prefer system-wide defaults.
 
-### Step 4 – Database Prep & Migrations
+### Step 5 – Database Prep & Migrations
 1. Create DB/role: `sudo -u postgres createuser -P pgeu` and `createdb -O pgeu pgeu`.
 2. Run migrations: `./venv/bin/python manage.py migrate`.
 3. Create initial superuser: `./venv/bin/python manage.py createsuperuser`.
 4. Load seed data as needed (currencies, countries) via Django admin or management commands.
 
-### Step 5 – Static/Media Assets
+### Step 6 – Static/Media Assets
 - Decide on storage for uploaded files (`MEDIA_ROOT`). Ensure directory ownership matches the uwsgi user.
 - Collect static assets if serving via Django: `./venv/bin/python manage.py collectstatic`.
 - Configure web server to serve `/media/` and `/static/` either directly or via CDN.
 
-### Step 6 – Application Server
+### Step 7 – Application Server
 1. Start with uwsgi: create `/etc/uwsgi/apps-available/pgeu.ini` similar to `tools/devsetup/devserver-uwsgi.ini.tmpl` but pointing at `/opt/pgeu-system/venv`.
 2. Configure process manager (systemd unit) and socket, e.g.:
    ```
@@ -106,11 +118,11 @@
    ```
 3. Front with nginx/Apache to terminate TLS and forward to uwsgi socket.
 
-### Step 7 – Background Jobs
+### Step 8 – Background Jobs
 - Copy `tools/systemd/pgeu_jobs_runner.service` and `pgeu_media_poster.service` to `/etc/systemd/system`, adjust paths/users, and enable them. They drive scheduled jobs and media posting.
 - Ensure cron or systemd timers trigger any periodic scripts from `tools/` (mail queue, integrations) if required.
 
-### Step 8 – Verification
+### Step 9 – Verification
 - Smoke test via `./venv/bin/python manage.py runserver` on staging first.
 - Validate:
   - Admin login
