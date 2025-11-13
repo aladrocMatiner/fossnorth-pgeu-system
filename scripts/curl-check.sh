@@ -9,15 +9,26 @@ echo "Testing endpoints against ${BASE_URL}"
 curl_check() {
   local path="$1"
   local label="$2"
-  echo "→ ${label}: ${BASE_URL}${path}"
-  curl -fsSL -o "$TMP_FILE" -w "Status: %{http_code}\n" "${BASE_URL}${path}"
+  local expected="$3"
+  local url="${BASE_URL}${path}"
+  echo "→ ${label}: ${url}"
+  status="$(curl -sS -o "$TMP_FILE" -w "%{http_code}" "$url" || true)"
+  if [[ "$expected" =~ $status ]]; then
+    printf "   Status: %s (ok)\n" "$status"
+  else
+    printf "   Status: %s (expected %s)\n" "$status" "$expected"
+    head -n 5 "$TMP_FILE" | sed 's/^/   /'
+    echo
+    echo "Test failed."
+    exit 1
+  fi
   head -n 5 "$TMP_FILE" | sed 's/^/   /'
   echo
 }
 
-curl_check "/" "Homepage"
-curl_check "/admin/login/" "Admin login"
-curl_check "/account/" "User account"
+curl_check "/" "Homepage" "200"
+curl_check "/account/" "Account/login page" "200|302"
+curl_check "/events/admin/" "Events admin (redirect expected)" "302|301"
 
 rm -f "$TMP_FILE"
 
