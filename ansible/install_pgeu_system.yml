@@ -1,0 +1,148 @@
+---
+- name: Install and configure pgeu-system
+  hosts: pgeu_hosts
+  become: true
+  gather_facts: true
+  vars:
+    pgeu_repo_url: https://github.com/pgeu/pgeu-system.git
+    pgeu_repo_version: master
+    pgeu_install_dir: /opt/pgeu-system
+    pgeu_system_user: "{{ ansible_user }}"
+    pgeu_system_group: "{{ ansible_user }}"
+    pgeu_packages:
+      - git
+      - python3
+      - python3-venv
+      - python3-pip
+      - virtualenv
+      - python3-dev
+      - python3-psycopg2
+      - build-essential
+      - libffi-dev
+      - libssl-dev
+      - libjpeg-dev
+      - libpng-dev
+      - postgresql-client
+      - postgresql-server-dev-all
+      - uwsgi
+      - uwsgi-plugin-python3
+      - fonts-dejavu-core
+    pgeu_manage_database: false
+    pgeu_db_locale: en_US.UTF-8
+    pgeu_db_name: pgeu
+    pgeu_db_user: pgeu
+    pgeu_db_password: changeme
+    pgeu_db_host: 127.0.0.1
+    pgeu_db_port: 5432
+    pgeu_site_base_url: https://conference.example.org/
+    pgeu_allowed_hosts:
+      - conference.example.org
+    pgeu_secret_key: replace-me
+    pgeu_server_email: noreply@example.org
+    pgeu_debug: false
+    pgeu_disable_https_redirects: false
+    pgeu_session_cookie_secure: true
+    pgeu_csrf_cookie_secure: true
+    pgeu_pg_auth_enabled: false
+    pgeu_pg_auth_key: ""
+    pgeu_pg_auth_redirect: ""
+    pgeu_run_migrations: true
+    pgeu_collectstatic: true
+    pgeu_django_env:
+      DJANGO_SETTINGS_MODULE: postgresqleu.settings
+      PATH: "{{ pgeu_install_dir }}/venv/bin:{{ ansible_env.PATH }}"
+
+  collections:
+    - ansible.builtin
+    - community.postgresql
+
+  pre_tasks:
+    - name: Ensure apt cache is up to date (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+  tasks:
+    - name: Install required system packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: "{{ pgeu_packages }}"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure application directory exists
+      ansible.builtin.file:
+        path: "{{ pgeu_install_dir }}"
+        state: directory
+        owner: "{{ pgeu_system_user }}"
+        group: "{{ pgeu_system_group }}"
+        mode: "0755"
+
+    - name: Fetch pgeu-system sources
+      ansible.builtin.git:
+        repo: "{{ pgeu_repo_url }}"
+        version: "{{ pgeu_repo_version }}"
+        dest: "{{ pgeu_install_dir }}"
+        update: yes
+      become_user: "{{ pgeu_system_user }}"
+
+    - name: Ensure Python virtual environment exists
+      ansible.builtin.command:
+        cmd: python3 -m venv "{{ pgeu_install_dir }}/venv"
+        creates: "{{ pgeu_install_dir }}/venv/bin/activate"
+      become_user: "{{ pgeu_system_user }}"
+
+    - name: Upgrade pip inside the virtualenv
+      ansible.builtin.command:
+        cmd: "{{ pgeu_install_dir }}/venv/bin/pip install --upgrade pip"
+      become_user: "{{ pgeu_system_user }}"
+
+    - name: Install Python requirements
+      ansible.builtin.pip:
+        requirements: "{{ pgeu_install_dir }}/tools/devsetup/dev_requirements.txt"
+        virtualenv: "{{ pgeu_install_dir }}/venv"
+        virtualenv_python: python3
+      become_user: "{{ pgeu_system_user }}"
+
+    - name: Render postgresqleu/local_settings.py
+      ansible.builtin.template:
+        src: templates/local_settings.py.j2
+        dest: "{{ pgeu_install_dir }}/postgresqleu/local_settings.py"
+        owner: "{{ pgeu_system_user }}"
+        group: "{{ pgeu_system_group }}"
+        mode: "0640"
+
+    - name: Ensure PostgreSQL role exists (optional)
+      community.postgresql.postgresql_user:
+        name: "{{ pgeu_db_user }}"
+        password: "{{ pgeu_db_password }}"
+        role_attr_flags: LOGIN
+      become_user: postgres
+      when: pgeu_manage_database
+
+    - name: Ensure PostgreSQL database exists (optional)
+      community.postgresql.postgresql_db:
+        name: "{{ pgeu_db_name }}"
+        owner: "{{ pgeu_db_user }}"
+        encoding: "UTF8"
+        lc_collate: "{{ pgeu_db_locale }}"
+        lc_ctype: "{{ pgeu_db_locale }}"
+        template: template0
+      become_user: postgres
+      when: pgeu_manage_database
+
+    - name: Apply database migrations
+      ansible.builtin.command:
+        cmd: "{{ pgeu_install_dir }}/venv/bin/python manage.py migrate"
+        chdir: "{{ pgeu_install_dir }}"
+      environment: "{{ pgeu_django_env }}"
+      become_user: "{{ pgeu_system_user }}"
+      when: pgeu_run_migrations
+
+    - name: Collect static assets
+      ansible.builtin.command:
+        cmd: "{{ pgeu_install_dir }}/venv/bin/python manage.py collectstatic --noinput"
+        chdir: "{{ pgeu_install_dir }}"
+      environment: "{{ pgeu_django_env }}"
+      become_user: "{{ pgeu_system_user }}"
+      when: pgeu_collectstatic

@@ -1,0 +1,26 @@
+DEBUG={{ pgeu_debug | ternary('True', 'False') }}
+DISABLE_HTTPS_REDIRECTS={{ pgeu_disable_https_redirects | ternary('True', 'False') }}
+ALLOWED_HOSTS={{ pgeu_allowed_hosts | to_json }}
+SECRET_KEY="{{ pgeu_secret_key }}"
+SERVER_EMAIL="{{ pgeu_server_email }}"
+SITEBASE="{{ pgeu_site_base_url }}"
+SESSION_COOKIE_SECURE={{ pgeu_session_cookie_secure | ternary('True', 'False') }}
+CSRF_COOKIE_SECURE={{ pgeu_csrf_cookie_secure | ternary('True', 'False') }}
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "NAME": "{{ pgeu_db_name }}",
+        "HOST": "{{ pgeu_db_host }}",
+        "PORT": "{{ pgeu_db_port }}",
+        "USER": "{{ pgeu_db_user }}",
+        {% if pgeu_db_password %}
+        "PASSWORD": "{{ pgeu_db_password }}",
+        {% endif %}
+    }
+}
+
+{% if pgeu_pg_auth_enabled %}
+PGAUTH_KEY="{{ pgeu_pg_auth_key }}"
+PGAUTH_REDIRECT="{{ pgeu_pg_auth_redirect }}"
+{% endif %}
