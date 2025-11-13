@@ -35,7 +35,12 @@ Clone the helper repo, then fetch the application next to it:
 git clone https://github.com/aladrocMatiner/fossnorth-pgeu-system.git
 cd fossnorth-pgeu-system
 git clone https://github.com/pgeu/pgeu-system.git
+tree -L 1
 ```
+
+Make sure `docker-compose/`, `docker-compose.yml`, and `pgeu-system/`
+all exist at the top level before proceeding. Missing directories mean
+the helper files and upstream sources are not aligned correctly yet.
 
 ## 3. Configuration Flow
 
@@ -60,16 +65,39 @@ git clone https://github.com/pgeu/pgeu-system.git
      static files, and serves Django on port 8000.
    - `db` container runs PostgreSQL 15 with data persisted in the
      `pg-data` volume.
+   - Both services run on the host network, so keep ports 8000 (web)
+     and 5432 (database) free on the host OS.
 
 3. **Create an admin user** (run once after the containers come up):
    ```bash
    docker compose exec web python manage.py createsuperuser
    ```
+   The command will prompt for username, email, and password. Use this
+   account for logging in at `/admin/` and the main site.
 
 4. **Access the site** at <http://localhost:8000/> (or the hostname you
    configured).
 
-## 4. Persistence & Customizations
+## 4. First-Run Checklist
+1. Visit <http://localhost:8000/> and sign in with the superuser you
+   just created.
+2. Browse to `/admin/` to confirm admin access works.
+3. If you see unexpected errors, check `docker compose logs web` before
+   restarting the stack.
+
+### Common Errors
+- **`SyntaxError: multiple exception types must be parenthesized`** during
+  startup indicates the old `pycryptodomex` wheel is still cached. Rebuild
+  from scratch:
+  ```bash
+  docker compose down
+  docker compose build --no-cache
+  docker compose up -d
+  ```
+  After that, `docker compose exec web pip show pycryptodomex` should
+  report `3.19.1`.
+
+## 5. Persistence & Customizations
 - `pg-data`: PostgreSQL data directory (`docker volume ls`).
 - `web-media`: uploaded files (`/app/media` inside the container).
 - `web-static`: collected static assets.
@@ -77,7 +105,7 @@ git clone https://github.com/pgeu/pgeu-system.git
 - To run alternative commands (e.g., tests) reuse the web container:
   `docker compose run --rm web ./manage.py test`.
 
-## 5. Background Jobs & Production Notes
+## 6. Background Jobs & Production Notes
 - The compose stack only runs the main web process. For full parity with
   production you may add services based on `tools/systemd/pgeu_jobs_runner.service`
   and `pgeu_media_poster.service`.
