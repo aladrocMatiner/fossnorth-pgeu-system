@@ -78,7 +78,17 @@ the helper files and upstream sources are not aligned correctly yet.
 4. **Access the site** at <http://localhost:8000/> (or the hostname you
    configured).
 
-## 4. First-Run Checklist
+## 4. Preflight Script
+Before building, you can run:
+```bash
+./scripts/preflight-check.sh
+```
+This validates that `docker`/`docker compose` are available, the repo
+structure is correct, `.env` exists with `DJANGO_DEBUG=false`, and the
+critical dependency pins (e.g., `pycryptodomex==3.19.1`) are present. A
+non-zero exit means something needs fixing before `docker compose up`.
+
+## 5. First-Run Checklist
 1. Visit <http://localhost:8000/> and sign in with the superuser you
    just created.
 2. Browse to `/admin/` to confirm admin access works.
@@ -97,7 +107,7 @@ the helper files and upstream sources are not aligned correctly yet.
   After that, `docker compose exec web pip show pycryptodomex` should
   report `3.19.1`.
 
-## 5. Persistence & Customizations
+## 6. Persistence & Customizations
 - `pg-data`: PostgreSQL data directory (`docker volume ls`).
 - `web-media`: uploaded files (`/app/media` inside the container).
 - `web-static`: collected static assets.
@@ -105,7 +115,7 @@ the helper files and upstream sources are not aligned correctly yet.
 - To run alternative commands (e.g., tests) reuse the web container:
   `docker compose run --rm web ./manage.py test`.
 
-## 6. Background Jobs & Production Notes
+## 7. Background Jobs & Production Notes
 - The compose stack only runs the main web process. For full parity with
   production you may add services based on `tools/systemd/pgeu_jobs_runner.service`
   and `pgeu_media_poster.service`.

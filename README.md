@@ -62,6 +62,18 @@ should at least show:
 If any of these are missing, revisit the clone instructions in
 `docker-compose/README.md` before continuing.
 
+### Preflight Check
+Run the helper script before building to ensure dependencies, structure,
+and `.env` settings are all aligned:
+
+```bash
+./scripts/preflight-check.sh
+```
+
+The script validates the directory layout, required binaries (`docker`
+and `docker compose`), and critical Python pins such as
+`pycryptodomex==3.19.1`. Fix any reported issues before proceeding.
+
 Media uploads, collected static files, and database data are stored in
 named Docker volumes (`web-media`, `web-static`, `pg-data`). Run
 `docker compose down -v` to tear everything down and delete persisted
