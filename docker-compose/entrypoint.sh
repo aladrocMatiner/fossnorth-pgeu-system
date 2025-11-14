@@ -50,7 +50,9 @@ DB_PASSWORD="${DJANGO_DB_PASSWORD:-${POSTGRES_PASSWORD:-pgeu}}"
 DB_HOST="${DJANGO_DB_HOST:-db}"
 DB_PORT="${DJANGO_DB_PORT:-5432}"
 
+# Normalize SITE BASE (strip trailing slash)
 SITE_BASE="${DJANGO_SITE_BASE:-http://localhost:8000/}"
+SITE_BASE="${SITE_BASE%/}"
 SERVER_EMAIL="${DJANGO_SERVER_EMAIL:-noreply@example.org}"
 
 # Optional OAuth/Keycloak config
@@ -92,7 +94,7 @@ cd "${APP_DIR}"
 
 # Optionally append OAuth/Keycloak settings
 if [[ "${ENABLE_OAUTH_AUTH}" == "True" ]]; then
-  if [[ -n "${KEYCLOAK_BASE_URL}" && -n "${KEYCLOAK_CLIENT_ID}" && -n "${KEYCLOAK_CLIENT_SECRET}" ]]; then
+  if [[ -n "${KEYCLOAK_BASE_URL}" && -n "${KEYCLOAK_CLIENT_ID}" ]]; then
     cat >> "${LOCAL_SETTINGS_FILE}" <<EOF
 
 ENABLE_OAUTH_AUTH = True
@@ -105,11 +107,30 @@ OAUTH = {
 }
 EOF
   else
-    echo "[entrypoint] DJANGO_ENABLE_OAUTH_AUTH=True but KEYCLOAK_* variables are missing; skipping OAUTH config" >&2
+    echo "[entrypoint] OAuth enabled but KEYCLOAK_BASE_URL/KEYCLOAK_CLIENT_ID missing; skipping OAUTH config" >&2
   fi
 fi
 
 if [[ "${auto_migrate_flag}" == "True" ]]; then
+  # If OAuth is enabled, wait for OIDC discovery to be available (Keycloak ready)
+  if [[ "${ENABLE_OAUTH_AUTH}" == "True" && -n "${KEYCLOAK_BASE_URL}" ]]; then
+    echo "[entrypoint] Waiting for OIDC discovery at provider..."
+    python - <<'PY'
+import os, sys, time, urllib.request
+base = os.environ.get('KEYCLOAK_BASE_URL','').rstrip('/')
+if base:
+    url = f"{base}/.well-known/openid-configuration"
+    for i in range(60):
+        try:
+            with urllib.request.urlopen(url, timeout=3) as r:
+                if r.status == 200:
+                    print("[entrypoint] OIDC discovery available")
+                    break
+        except Exception as e:
+            pass
+        time.sleep(2)
+PY
+  fi
   python manage.py migrate --noinput
 fi
 

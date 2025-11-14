@@ -13,7 +13,7 @@
       "redirectUris": [
         "http://localhost:8000/accounts/login/keycloak/*"
       ],
-      "webOrigins": ["+"],
+      "webOrigins": ["http://localhost:8000", "+"],
       "attributes": {
         "post.logout.redirect.uris": "+"
       }

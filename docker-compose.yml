@@ -12,6 +12,7 @@ services:
       DJANGO_DB_NAME: ${POSTGRES_DB:-pgeu}
       DJANGO_DB_USER: ${POSTGRES_USER:-pgeu}
       DJANGO_DB_PASSWORD: ${POSTGRES_PASSWORD:-pgeu}
+      OAUTHLIB_INSECURE_TRANSPORT: "1"
     volumes:
       - ./pgeu-system:/app
       - web-media:/app/media
@@ -20,7 +21,7 @@ services:
       db:
         condition: service_healthy
       keycloak:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
 
   keycloak:
@@ -33,10 +34,11 @@ services:
     volumes:
       - ./keycloak/realm-pgeu.json:/opt/keycloak/data/import/realm-pgeu.json:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health/ready || exit 1"]
+      test: >
+        bash -lc 'exec 3<>/dev/tcp/127.0.0.1/9000 && printf "GET /health/ready HTTP/1.0\r\n\r\n" >&3 && head -n1 <&3 | grep 200'
       interval: 10s
       timeout: 5s
-      retries: 30
+      retries: 60
     restart: unless-stopped
 
   db:
