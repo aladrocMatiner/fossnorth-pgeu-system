@@ -1,0 +1,40 @@
+{
+  "realm": "pgeu",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "clients": [
+    {
+      "clientId": "pgeu",
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "redirectUris": [
+        "${SITEBASE}/accounts/login/keycloak/*"
+      ],
+      "webOrigins": ["${SITEBASE}", "+"],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "fossnorth",
+      "email": "fossnorth@example.org",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Foss",
+      "lastName": "North",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "fossnorth",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}
+

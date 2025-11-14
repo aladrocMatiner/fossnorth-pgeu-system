@@ -99,8 +99,12 @@ non-zero exit means something needs fixing before `docker compose up`.
   - `KEYCLOAK_BASE_URL=http://127.0.0.1:8080/realms/pgeu`
   - `KEYCLOAK_CLIENT_ID=pgeu`
   - `KEYCLOAK_CLIENT_SECRET=` (optional for public client)
-  Then rebuild: `docker compose up -d --build`. Visit `/accounts/login/`.
-  See `docs/keycloak-sso.md` for details.
+  Then: `./scripts/generate-keycloak-realm.sh` to regenerate
+  `keycloak/realm-pgeu.json` from your `DJANGO_SITE_BASE`, and rebuild:
+  `docker compose up -d --build`. Visit `/accounts/login/`.
+  See `docs/keycloak-sso.md` for details. The Keycloak container exposes a
+  health endpoint (`/health/ready`), and the `web` service waits for it
+  before starting.
 
 ## 5. First-Run Checklist
 1. Visit <http://localhost:8000/> and sign in with the superuser you
