@@ -110,6 +110,16 @@ Convenience Make targets
 - `make sso-down` — stops containers (keeps volumes).
 - `make sso-logs` — tails the web and keycloak logs.
 
+### SSO Smoke Test
+Verify Keycloak readiness and OAuth redirection end-to-end:
+```bash
+./scripts/sso-check.sh
+```
+It checks Keycloak `/health/ready`, homepage `/`, login page `/accounts/login/`
+for the Keycloak provider link, and the redirect from
+`/accounts/login/keycloak/` to Keycloak's auth endpoint (validates
+`client_id`). Override defaults with `BASE_URL` and `KC_BASE` if needed.
+
 Media uploads, collected static files, and database data are stored in
 named Docker volumes (`web-media`, `web-static`, `pg-data`). Run
 `docker compose down -v` to tear everything down and delete persisted

@@ -113,6 +113,15 @@ non-zero exit means something needs fixing before `docker compose up`.
 - `make sso-down` stops the stack (keeps volumes).
 - `make sso-logs` tails logs from `web` and `keycloak` services.
 
+## 7. SSO Smoke Test
+After the stack is up, validate Keycloak health and the OAuth redirect:
+```bash
+./scripts/sso-check.sh
+```
+This checks `/health/ready` on Keycloak, loads `/` and `/accounts/login/` from
+the app, and verifies `/accounts/login/keycloak/` redirects to the Keycloak
+auth endpoint with the expected `client_id`.
+
 ## 5. First-Run Checklist
 1. Visit <http://localhost:8000/> and sign in with the superuser you
    just created.
