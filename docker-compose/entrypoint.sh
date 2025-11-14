@@ -53,6 +53,12 @@ DB_PORT="${DJANGO_DB_PORT:-5432}"
 SITE_BASE="${DJANGO_SITE_BASE:-http://localhost:8000/}"
 SERVER_EMAIL="${DJANGO_SERVER_EMAIL:-noreply@example.org}"
 
+# Optional OAuth/Keycloak config
+ENABLE_OAUTH_AUTH="$(bool_to_py "${DJANGO_ENABLE_OAUTH_AUTH:-False}" "False")"
+KEYCLOAK_BASE_URL="${KEYCLOAK_BASE_URL:-}"
+KEYCLOAK_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-}"
+KEYCLOAK_CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
+
 mkdir -p "${APP_DIR}/media" "${APP_DIR}/staticfiles"
 
 cat > "${LOCAL_SETTINGS_FILE}" <<EOF
@@ -83,6 +89,25 @@ MEDIA_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../media"
 EOF
 
 cd "${APP_DIR}"
+
+# Optionally append OAuth/Keycloak settings
+if [[ "${ENABLE_OAUTH_AUTH}" == "True" ]]; then
+  if [[ -n "${KEYCLOAK_BASE_URL}" && -n "${KEYCLOAK_CLIENT_ID}" && -n "${KEYCLOAK_CLIENT_SECRET}" ]]; then
+    cat >> "${LOCAL_SETTINGS_FILE}" <<EOF
+
+ENABLE_OAUTH_AUTH = True
+OAUTH = {
+    'keycloak': {
+        'clientid': '${KEYCLOAK_CLIENT_ID}',
+        'secret': '${KEYCLOAK_CLIENT_SECRET}',
+        'baseurl': '${KEYCLOAK_BASE_URL}',
+    }
+}
+EOF
+  else
+    echo "[entrypoint] DJANGO_ENABLE_OAUTH_AUTH=True but KEYCLOAK_* variables are missing; skipping OAUTH config" >&2
+  fi
+fi
 
 if [[ "${auto_migrate_flag}" == "True" ]]; then
   python manage.py migrate --noinput
