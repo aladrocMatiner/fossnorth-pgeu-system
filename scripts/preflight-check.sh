@@ -67,6 +67,14 @@ check_file_contains "qrcode==7.4.2" "$REQ_FILE" "qrcode==7.4.2"
 check_file_contains "cairosvg==2.7.1" "$REQ_FILE" "cairosvg==2.7.1"
 check_file_contains "PyMuPDF==1.24.9" "$REQ_FILE" "PyMuPDF==1.24.9"
 
+# Optional OAuth checks
+if grep -q '^DJANGO_ENABLE_OAUTH_AUTH=true' "$ENV_FILE"; then
+  info "OAuth enabled; checking Keycloak env…"
+  grep -q '^KEYCLOAK_BASE_URL=' "$ENV_FILE" && pass "KEYCLOAK_BASE_URL present" || fail "Missing KEYCLOAK_BASE_URL in docker-compose/.env"
+  grep -q '^KEYCLOAK_CLIENT_ID=' "$ENV_FILE" && pass "KEYCLOAK_CLIENT_ID present" || fail "Missing KEYCLOAK_CLIENT_ID in docker-compose/.env"
+  grep -q '^KEYCLOAK_CLIENT_SECRET=' "$ENV_FILE" && pass "KEYCLOAK_CLIENT_SECRET present" || fail "Missing KEYCLOAK_CLIENT_SECRET in docker-compose/.env"
+fi
+
 if [[ $FAILURES -eq 0 ]]; then
   echo "✅ Preflight completed successfully. Continue with 'docker compose build --no-cache && docker compose up -d'."
 else

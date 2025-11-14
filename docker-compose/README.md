@@ -67,7 +67,8 @@ the helper files and upstream sources are not aligned correctly yet.
    - `db` container runs PostgreSQL 15 with data persisted in the
      `pg-data` volume.
    - Both services run on the host network, so keep ports 8000 (web)
-     and 5432 (database) free on the host OS.
+     and 5432 (database) free on the host OS. Keycloak (SSO) also binds
+     port 8080 when enabled.
 
 3. **Create an admin user** (run once after the containers come up):
    ```bash
@@ -88,6 +89,18 @@ This validates that `docker`/`docker compose` are available, the repo
 structure is correct, `.env` exists with `DJANGO_DEBUG=false`, and the
 critical dependency pins (e.g., `pycryptodomex==3.19.1`) are present. A
 non-zero exit means something needs fixing before `docker compose up`.
+
+### Keycloak SSO
+- The compose file includes a Keycloak container (dev mode) that imports a
+  ready-to-use `pgeu` realm with client `pgeu` and user `fossnorth`.
+- To enable SSO in Django, set these in `docker-compose/.env`:
+  - `DJANGO_ENABLE_OAUTH_AUTH=true`
+  - `DJANGO_SITE_BASE=http://localhost:8000`
+  - `KEYCLOAK_BASE_URL=http://127.0.0.1:8080/realms/pgeu`
+  - `KEYCLOAK_CLIENT_ID=pgeu`
+  - `KEYCLOAK_CLIENT_SECRET=` (optional for public client)
+  Then rebuild: `docker compose up -d --build`. Visit `/accounts/login/`.
+  See `docs/keycloak-sso.md` for details.
 
 ## 5. First-Run Checklist
 1. Visit <http://localhost:8000/> and sign in with the superuser you

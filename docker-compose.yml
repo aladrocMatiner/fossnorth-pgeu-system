@@ -21,6 +21,17 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    network_mode: host
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./keycloak/realm-pgeu.json:/opt/keycloak/data/import/realm-pgeu.json:ro
+    restart: unless-stopped
+
   db:
     image: postgres:15
     network_mode: host

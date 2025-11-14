@@ -31,7 +31,7 @@ level flow is:
    ```
    The compose file attaches both services directly to the host
    network, so make sure nothing else is already bound to ports 8000
-   (web) or 5432 (database) before running this command.
+   (web), 5432 (database), or 8080 (Keycloak) before running this command.
 3. Once the containers settle, create an admin user:
    ```bash
    docker compose exec web python manage.py createsuperuser
@@ -82,6 +82,20 @@ After `docker compose up -d`, run:
 ```
 The script hits `/`, `/admin/login/`, and `/account/` using `curl`. Set
 `BASE_URL=http://your-host:8000` if you’re exposing the stack elsewhere.
+
+### Single Sign-On (Keycloak)
+- A Keycloak container is included in the compose stack (dev mode on port
+  8080). It imports a default realm `pgeu` with:
+  - Client `pgeu` (public) allowing redirect
+    `http://localhost:8000/accounts/login/keycloak/*`.
+  - Test user `fossnorth` (password `fossnorth`).
+- To enable SSO in Django, set in `docker-compose/.env`:
+  - `DJANGO_ENABLE_OAUTH_AUTH=true`
+  - `DJANGO_SITE_BASE=http://localhost:8000`
+  - `KEYCLOAK_BASE_URL=http://127.0.0.1:8080/realms/pgeu`
+  - `KEYCLOAK_CLIENT_ID=pgeu`
+  - `KEYCLOAK_CLIENT_SECRET=` (not required for public client; leave empty)
+  Then `docker compose up -d --build` and visit `/accounts/login/`.
 
 Media uploads, collected static files, and database data are stored in
 named Docker volumes (`web-media`, `web-static`, `pg-data`). Run
