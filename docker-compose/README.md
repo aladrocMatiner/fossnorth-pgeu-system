@@ -106,6 +106,13 @@ non-zero exit means something needs fixing before `docker compose up`.
   health endpoint (`/health/ready`), and the `web` service waits for it
   before starting.
 
+#### Makefile conveniences
+- `make sso-up` runs preflight checks, regenerates the Keycloak realm JSON,
+  and starts the stack.
+- `make sso-rebuild` forces a no‑cache rebuild and restart.
+- `make sso-down` stops the stack (keeps volumes).
+- `make sso-logs` tails logs from `web` and `keycloak` services.
+
 ## 5. First-Run Checklist
 1. Visit <http://localhost:8000/> and sign in with the superuser you
    just created.

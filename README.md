@@ -96,8 +96,19 @@ The script hits `/`, `/admin/login/`, and `/account/` using `curl`. Set
   - `KEYCLOAK_BASE_URL=http://127.0.0.1:8080/realms/pgeu`
   - `KEYCLOAK_CLIENT_ID=pgeu`
   - `KEYCLOAK_CLIENT_SECRET=` (not required for public client; leave empty)
-  Then run `./scripts/generate-keycloak-realm.sh`, followed by
-  `docker compose up -d --build`, and visit `/accounts/login/`.
+  Then either run the Make target:
+  ```bash
+  make sso-up
+  ```
+  or, manually: `./scripts/generate-keycloak-realm.sh && docker compose up -d --build`,
+  and visit `/accounts/login/`.
+
+Convenience Make targets
+- `make sso-up` — runs preflight, regenerates the Keycloak realm JSON from
+  `DJANGO_SITE_BASE`, and brings the stack up (with build).
+- `make sso-rebuild` — forces a no‑cache rebuild and restarts everything.
+- `make sso-down` — stops containers (keeps volumes).
+- `make sso-logs` — tails the web and keycloak logs.
 
 Media uploads, collected static files, and database data are stored in
 named Docker volumes (`web-media`, `web-static`, `pg-data`). Run
