@@ -68,6 +68,11 @@ Health URLs
 - Keycloak admin console: http://127.0.0.1:8080/admin/ (admin/admin by default).
 - Keycloak health: http://127.0.0.1:9000/health/ready
 - Through nginx: same app routes on port 80; Keycloak exposed at http://localhost/auth/realms/pgeu
+  
+VPS config (foss-north)
+- Sample env: `docker-compose/.env.foss-north.example` (SITEBASE=https://foss-north.aladroc.io, allowed hosts, proxied Keycloak URL).
+- TLS: `./scripts/generate-selfsigned-cert.sh` -> `certs/foss-north.aladroc.io.{crt,key}`. Replace with real certs in `certs/` for prod, restart nginx.
+- Docs: see `docs/foss-north-vps.md` for end-to-end steps.
 
 TLS (self-signed)
 - Cert path mounted into nginx: `./certs` -> `/etc/nginx/certs`.
