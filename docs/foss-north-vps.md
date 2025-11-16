@@ -30,7 +30,7 @@ If testing remotely, set `TARGET_IP` to the VPS IP. The script hits HTTP/HTTPS h
 
 Helpers for domains
 - For foss-north.aladroc.io (production, verified certs): `./scripts/patch-domain-foss-north.sh`
-- For new.foss-north.se (test/self-signed, skips SSL verify for Keycloak): `./scripts/patch-domain-new-foss.sh`
+- For new.foss-north.se (test/self-signed, skips SSL verify for Keycloak): `./scripts/patch-domain-new-foss.sh` (uses local Keycloak URL http://127.0.0.1:8080/realms/pgeu to avoid cert issues)
 
 Notes:
 - nginx listens on 80/443 and proxies `/` to the app (web:8000) and `/auth/` to Keycloak (8080).

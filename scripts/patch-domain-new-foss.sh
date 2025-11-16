@@ -25,7 +25,8 @@ update_kv "DJANGO_DISABLE_HTTPS_REDIRECTS" "false"
 update_kv "DJANGO_SESSION_COOKIE_SECURE" "true"
 update_kv "DJANGO_CSRF_COOKIE_SECURE" "true"
 update_kv "DJANGO_ENABLE_OAUTH_AUTH" "true"
-update_kv "KEYCLOAK_BASE_URL" "https://${DOMAIN}/auth/realms/pgeu"
+# For test/self-signed: use local Keycloak URL to avoid SSL/cert issues
+update_kv "KEYCLOAK_BASE_URL" "http://127.0.0.1:8080/realms/pgeu"
 update_kv "KEYCLOAK_CLIENT_ID" "pgeu"
 # Test env with self-signed; disable verification
 update_kv "KEYCLOAK_SSL_VERIFY" "false"
