@@ -277,6 +277,8 @@ def oauth_login_twitter(request):
         _twitter_auth_data)
 
 
+
+
 #
 # Keycloak login (generic OIDC)
 #
@@ -298,7 +300,6 @@ def oauth_login_keycloak(request):
         f'{base}/protocol/openid-connect/token',
         ['openid', 'profile', 'email'],
         _keycloak_auth_data)
-
 
 def login_oauth(request, provider):
     fn = 'oauth_login_{0}'.format(provider)
