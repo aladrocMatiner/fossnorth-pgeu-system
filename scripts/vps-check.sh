@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Simple end-to-end check via nginx for a given host (defaults to foss-north.aladroc.io).
-# Uses --resolve to point the hostname at TARGET_IP (default 127.0.0.1).
+# End-to-end check via nginx for a given host.
+# Defaults are derived from .env when present.
 
-HOSTNAME="${HOSTNAME_OVERRIDE:-foss-north.aladroc.io}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${ROOT}/docker-compose/.env"
+
+default_host="foss-north.aladroc.io"
+default_scheme="https"
+if [[ -f "$ENV_FILE" ]]; then
+  host_line=$(grep -E '^DJANGO_SITE_BASE=' "$ENV_FILE" | head -n1 | cut -d= -f2- || true)
+  if [[ -n "$host_line" ]]; then
+    default_scheme="${host_line%%://*}"
+    default_host="${host_line#*://}"
+    default_host="${default_host%%/*}"
+  fi
+fi
+
+HOSTNAME="${HOSTNAME_OVERRIDE:-$default_host}"
 TARGET_IP="${TARGET_IP:-127.0.0.1}"
+SCHEME="${SCHEME_OVERRIDE:-$default_scheme}"
+
+KC_PATH="${KC_PATH_OVERRIDE:-/auth/realms/pgeu/.well-known/openid-configuration}"
+KC_URL="${KC_URL_OVERRIDE:-${SCHEME}://${HOSTNAME}${KC_PATH}}"
 
 curl_cmd() {
-  curl -ksS --resolve "${HOSTNAME}:80:${TARGET_IP}" --resolve "${HOSTNAME}:443:${TARGET_IP}" "$@"
+  local verify_flag="-k"
+  [[ "${SKIP_TLS_VERIFY:-1}" == "0" ]] && verify_flag=""
+  curl -sS $verify_flag --resolve "${HOSTNAME}:80:${TARGET_IP}" --resolve "${HOSTNAME}:443:${TARGET_IP}" "$@"
 }
 
 check() {
@@ -25,12 +45,11 @@ check() {
   fi
 }
 
-echo "Checking via nginx at host=${HOSTNAME} target_ip=${TARGET_IP}"
+echo "Checking via nginx at host=${HOSTNAME} scheme=${SCHEME} target_ip=${TARGET_IP}"
 
-check "http://${HOSTNAME}/" "HTTP homepage" "200"
-check "https://${HOSTNAME}/" "HTTPS homepage" "200"
-check "https://${HOSTNAME}/accounts/login/" "HTTPS login page" "200"
-check "https://${HOSTNAME}/accounts/login/keycloak/" "Keycloak login redirect" "30[12]"
-check "https://${HOSTNAME}/auth/realms/pgeu/.well-known/openid-configuration" "Keycloak OIDC config" "200"
+check "${SCHEME}://${HOSTNAME}/" "Homepage" "200"
+check "${SCHEME}://${HOSTNAME}/accounts/login/" "Login page" "200"
+check "${SCHEME}://${HOSTNAME}/accounts/login/keycloak/" "Keycloak login redirect" "30[12]"
+check "${KC_URL}" "Keycloak OIDC config" "200"
 
 echo "All VPS checks passed."
