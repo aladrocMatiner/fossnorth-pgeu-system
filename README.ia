@@ -66,6 +66,11 @@ Health URLs
 - Keycloak admin console: http://127.0.0.1:8080/admin/ (admin/admin by default).
 - Keycloak health: http://127.0.0.1:9000/health/ready
 - Through nginx: same app routes on port 80; Keycloak exposed at http://localhost/auth/realms/pgeu
+
+TLS (self-signed)
+- Cert path mounted into nginx: `./certs` -> `/etc/nginx/certs`.
+- Generate self-signed for foss-north.aladroc.io: `./scripts/generate-selfsigned-cert.sh`.
+- nginx expects files: `certs/foss-north.aladroc.io.crt` and `.key`; HTTPS listens on 443 alongside HTTP 80.
 Committing notes
 - Do NOT commit upstream `pgeu-system/` tree; keep it untracked or remove before commit.
 - Only commit helper repo changes (scripts, docs, etc.).
