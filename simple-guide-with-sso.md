@@ -59,6 +59,9 @@ Wait until you see messages like:
 ./scripts/sso-check.sh      # SSO link + redirect looks correct
 ```
 Both should finish with “completed successfully” or “OK” lines.
+If `/accounts/login/keycloak/` ever shows a 500, re-run
+`./scripts/generate-keycloak-realm.sh` and `make sso-up` to refresh the
+Keycloak realm; the handler is built-in, no extra plugins needed.
 
 8) Test full login automatically (SSO)
 This script signs in with the demo Keycloak user (username: fossnorth, password: fossnorth) and confirms you’re logged in.
@@ -101,4 +104,3 @@ Where things run
 - Keycloak Admin (SSO): http://127.0.0.1:8080 (admin / admin)
 
 You’re done! If you need help or want this guide for macOS/Windows, ask and we’ll tailor it.
-

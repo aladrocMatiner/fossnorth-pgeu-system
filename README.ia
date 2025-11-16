@@ -1,0 +1,71 @@
+AI Ops Checklist (feature/keycloak-sso)
+======================================
+Clone/layout
+- Repo root must contain `docker-compose/`, `docker-compose.yml`, and a checkout of upstream `pgeu-system/` (clean, untracked; do not commit it).
+- If `pgeu-system/` blocks branch switches, move/delete it temporarily, switch, and re-clone upstream.
+
+Env defaults for SSO
+- Copy env and enable SSO:
+  ```
+  cp docker-compose/.env.example docker-compose/.env
+  # Edit as needed, but usually:
+  DJANGO_DEBUG=false
+  DJANGO_ENABLE_OAUTH_AUTH=true
+  DJANGO_SITE_BASE=http://localhost:8000
+  KEYCLOAK_BASE_URL=http://127.0.0.1:8080/realms/pgeu
+  KEYCLOAK_CLIENT_ID=pgeu
+  KEYCLOAK_CLIENT_SECRET=
+  ```
+- Regenerate Keycloak realm from SITEBASE:
+  `./scripts/generate-keycloak-realm.sh`
+
+Preflight
+- Patch upstream deps: `./scripts/patch-upstream.sh`
+- Preflight: `./scripts/preflight-check.sh`
+
+Build/run (SSO)
+- Build: `docker compose build --no-cache`
+- Up: `docker compose up -d --build`  (or `make sso-up`)
+- Services: web (runserver 8000), db (5432), keycloak (8080, health 9000). All use host network.
+
+Smoke tests
+- Basic HTTP: `./scripts/curl-check.sh`
+- SSO redirect: `./scripts/sso-check.sh` (expects Keycloak ready; checks redirect contains client_id).
+- Full SSO login with demo user: `./scripts/sso-login.sh` (uses fossnorth/fossnorth).
+
+Keycloak realm (imported automatically)
+- File: `keycloak/realm-pgeu.json` (generated from tmpl).
+- Includes client `pgeu` with redirect `${SITEBASE}/accounts/login/keycloak/*`.
+- Includes user `fossnorth` / `fossnorth` (emailVerified true).
+
+App config (entrypoint)
+- Generates `postgresqleu/local_settings.py` with DB creds, SITEBASE, cookies.
+- If `DJANGO_ENABLE_OAUTH_AUTH=true` and KEYCLOAK_* set, appends:
+  ```
+  ENABLE_OAUTH_AUTH = True
+  OAUTH = {
+      'keycloak': {
+          'clientid': <env>,
+          'secret': <env>,
+          'baseurl': <env>,
+      }
+  }
+  ```
+- Waits for OIDC discovery at `${KEYCLOAK_BASE_URL}/.well-known/openid-configuration` before migrations.
+
+Known quirks
+- During migrations, Postgres catalog “CAN'T FIX Unique constraint …” warnings are expected; migrations still finish.
+- Media/static 404s in logs come from browser/curl hitting trailing slashes; harmless for CLI tests.
+
+Docs touchpoints (already updated)
+- README.md, docker-compose/README.md, docs/keycloak-sso.md, quick-install-guide.md, simple-guide-with-sso.md mention built-in Keycloak handler and demo user.
+
+Health URLs
+- App: http://localhost:8000/ (login at /accounts/login/, admin at /admin/ after createsuperuser).
+- Keycloak realm base: http://127.0.0.1:8080/realms/pgeu
+- Keycloak admin console: http://127.0.0.1:8080/admin/ (admin/admin by default).
+- Keycloak health: http://127.0.0.1:9000/health/ready
+
+Committing notes
+- Do NOT commit upstream `pgeu-system/` tree; keep it untracked or remove before commit.
+- Only commit helper repo changes (scripts, docs, etc.).

@@ -102,6 +102,9 @@ non-zero exit means something needs fixing before `docker compose up`.
   Then: `./scripts/generate-keycloak-realm.sh` to regenerate
   `keycloak/realm-pgeu.json` from your `DJANGO_SITE_BASE`, and rebuild:
   `docker compose up -d --build`. Visit `/accounts/login/`.
+  The Keycloak login handler is built-in; `/accounts/login/keycloak/`
+  should redirect to Keycloak and accept the demo user `fossnorth/fossnorth`
+  from the imported realm.
   See `docs/keycloak-sso.md` for details. The Keycloak container exposes a
   health endpoint (`/health/ready`), and the `web` service waits for it
   before starting.

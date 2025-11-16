@@ -1,0 +1,10 @@
+pgeu-system/*
+!pgeu-system/postgresqleu/
+pgeu-system/postgresqleu/*
+!pgeu-system/postgresqleu/oauthlogin/
+pgeu-system/postgresqleu/oauthlogin/*
+!pgeu-system/postgresqleu/oauthlogin/oauthclient.py
+__pycache__/
+*.pyc
+*.pyo
+*.DS_Store

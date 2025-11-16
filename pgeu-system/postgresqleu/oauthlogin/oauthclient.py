@@ -277,6 +277,29 @@ def oauth_login_twitter(request):
         _twitter_auth_data)
 
 
+#
+# Keycloak login (generic OIDC)
+#
+def oauth_login_keycloak(request):
+    base = settings.OAUTH['keycloak']['baseurl'].rstrip('/')
+
+    def _keycloak_auth_data(oa):
+        r = oa.get(f'{base}/protocol/openid-connect/userinfo').json()
+        return (
+          r.get('email', ''),
+          r.get('given_name', ''),
+          r.get('family_name', ''),
+        )
+
+    return _login_oauth(
+        request,
+        'keycloak',
+        f'{base}/protocol/openid-connect/auth',
+        f'{base}/protocol/openid-connect/token',
+        ['openid', 'profile', 'email'],
+        _keycloak_auth_data)
+
+
 def login_oauth(request, provider):
     fn = 'oauth_login_{0}'.format(provider)
     m = sys.modules[__name__]
@@ -288,41 +311,3 @@ def login_oauth(request, provider):
         except Exception as e:
             log.error('Exception during OAuth: %s' % e)
             return HttpResponse('An unhandled exception occurred during the authentication process')
-
-
-#
-# Keycloak login (OpenID Connect)
-#  Configure in settings.OAUTH as:
-#  OAUTH = {
-#    'keycloak': {
-#       'clientid': '...client-id...',
-#       'secret': '...client-secret...',
-#       'baseurl': 'https://keycloak.example.org/realms/<realm>'
-#    }
-#  }
-#  Redirect URI must be:
-#    SITEBASE + '/accounts/login/keycloak/'
-#
-def oauth_login_keycloak(request):
-    def _kc_auth_data(oa):
-        base = settings.OAUTH['keycloak']['baseurl'].rstrip('/')
-        r = oa.get(f"{base}/protocol/openid-connect/userinfo").json()
-        # OIDC standard claims
-        email = r.get('email')
-        if not email:
-            raise OAuthException("Keycloak userinfo response missing email claim")
-        return (
-            email,
-            r.get('given_name', ''),
-            r.get('family_name', ''),
-        )
-
-    base = settings.OAUTH['keycloak']['baseurl'].rstrip('/')
-    return _login_oauth(
-        request,
-        'keycloak',
-        f"{base}/protocol/openid-connect/auth",
-        f"{base}/protocol/openid-connect/token",
-        ['openid', 'email', 'profile'],
-        _kc_auth_data,
-    )

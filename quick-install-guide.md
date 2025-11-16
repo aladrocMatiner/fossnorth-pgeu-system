@@ -49,6 +49,8 @@ make sso-up
 ./scripts/sso-login.sh      # logs in fossnorth / fossnorth
 ```
 Expect: "[OK] Authenticated access confirmed."
+Notes: Keycloak login is built-in; the dev realm imported at startup already
+contains the demo user above.
 
 7) Use in browser
 - Site: http://localhost:8000
@@ -73,4 +75,3 @@ Troubleshooting (30‑second fixes)
   ```
 - Ports busy: free ports 8000 (web), 5432 (db), 8080 (Keycloak).
 - First start slow: give Keycloak ~1–2 minutes on initial run.
-

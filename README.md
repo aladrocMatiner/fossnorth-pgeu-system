@@ -122,7 +122,10 @@ Verify Keycloak readiness and OAuth redirection end-to-end:
 It checks Keycloak `/health/ready`, homepage `/`, login page `/accounts/login/`
 for the Keycloak provider link, and the redirect from
 `/accounts/login/keycloak/` to Keycloak's auth endpoint (validates
-`client_id`). Override defaults with `BASE_URL` and `KC_BASE` if needed.
+`client_id`). The Keycloak login handler is built-in; if you see a 500 on that
+URL, re-run `./scripts/generate-keycloak-realm.sh` and confirm the
+`KEYCLOAK_*` vars in `.env`. Override defaults with `BASE_URL` and `KC_BASE`
+if needed.
 
 Media uploads, collected static files, and database data are stored in
 named Docker volumes (`web-media`, `web-static`, `pg-data`). Run

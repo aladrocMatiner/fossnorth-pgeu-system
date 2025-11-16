@@ -23,6 +23,8 @@ Quick Start (Docker Compose)
    docker compose up -d --build
    ```
 3. Navigate to `/accounts/login/` to see the Keycloak button and sign in.
+   - With the included dev realm (Docker), a demo user `fossnorth`/`fossnorth`
+     is imported automatically.
 
 What the container does
 - The entrypoint generates `postgresqleu/local_settings.py` and, when
@@ -58,9 +60,11 @@ OAUTH = {
 Then rebuild or restart the app.
 
 Notes
+- `/accounts/login/keycloak/` is served by the built-in Keycloak handler
+  (no plugins required). If you see a 500 here, verify that `OAUTH` contains
+  a `keycloak` entry and that the base URL is reachable.
 - New users are auto-created based on the Keycloak email claim upon first
   login. If you need group/role mappings, extend the Keycloak handler to read
   additional claims and assign Django groups accordingly.
 - Logout is local to Django. For full Single Logout, you can redirect to
   Keycloak's end-session endpoint after logging out of the app.
-
