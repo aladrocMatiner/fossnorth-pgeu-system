@@ -27,6 +27,8 @@ update_kv "DJANGO_CSRF_COOKIE_SECURE" "true"
 update_kv "DJANGO_ENABLE_OAUTH_AUTH" "true"
 update_kv "KEYCLOAK_BASE_URL" "https://${DOMAIN}/auth/realms/pgeu"
 update_kv "KEYCLOAK_CLIENT_ID" "pgeu"
+# Test env with self-signed; disable verification
+update_kv "KEYCLOAK_SSL_VERIFY" "false"
 
 if [[ -f "$NGINX_CONF" ]]; then
   sed -i "s|server_name .*|    server_name ${DOMAIN} localhost _;|" "$NGINX_CONF"

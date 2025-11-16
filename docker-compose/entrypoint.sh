@@ -60,6 +60,7 @@ ENABLE_OAUTH_AUTH="$(bool_to_py "${DJANGO_ENABLE_OAUTH_AUTH:-False}" "False")"
 KEYCLOAK_BASE_URL="${KEYCLOAK_BASE_URL:-}"
 KEYCLOAK_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-}"
 KEYCLOAK_CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
+KEYCLOAK_SSL_VERIFY="$(bool_to_py "${KEYCLOAK_SSL_VERIFY:-True}" "True")"
 
 mkdir -p "${APP_DIR}/media" "${APP_DIR}/staticfiles"
 
@@ -116,17 +117,22 @@ if [[ "${auto_migrate_flag}" == "True" ]]; then
   if [[ "${ENABLE_OAUTH_AUTH}" == "True" && -n "${KEYCLOAK_BASE_URL}" ]]; then
     echo "[entrypoint] Waiting for OIDC discovery at provider..."
     python - <<'PY'
-import os, sys, time, urllib.request
+import os, time, urllib.request, ssl
 base = os.environ.get('KEYCLOAK_BASE_URL','').rstrip('/')
+verify = os.environ.get('KEYCLOAK_SSL_VERIFY','True').lower() in ('1','true','yes','on')
+ctx = ssl.create_default_context()
+if not verify:
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 if base:
     url = f"{base}/.well-known/openid-configuration"
     for i in range(60):
         try:
-            with urllib.request.urlopen(url, timeout=3) as r:
+            with urllib.request.urlopen(url, timeout=3, context=ctx) as r:
                 if r.status == 200:
                     print("[entrypoint] OIDC discovery available")
                     break
-        except Exception as e:
+        except Exception:
             pass
         time.sleep(2)
 PY

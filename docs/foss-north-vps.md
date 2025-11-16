@@ -7,6 +7,7 @@ Use this when deploying on a VPS with nginx fronting both the app and Keycloak.
 cp docker-compose/.env.foss-north.example docker-compose/.env
 ```
 This sets `DJANGO_SITE_BASE=https://foss-north.aladroc.io`, allows that host, and points Keycloak to the proxied URL (`/auth/realms/pgeu`).
+`KEYCLOAK_SSL_VERIFY=true` assumes trusted certs (set false only for self-signed testing).
 
 2) Generate certs (replace with real Let’s Encrypt later):
 ```bash
@@ -28,8 +29,8 @@ HOSTNAME_OVERRIDE=foss-north.aladroc.io TARGET_IP=127.0.0.1 ./scripts/vps-check.
 If testing remotely, set `TARGET_IP` to the VPS IP. The script hits HTTP/HTTPS homepage, login, Keycloak redirect, and OIDC config via `/auth/`.
 
 Helpers for domains
-- For foss-north.aladroc.io: `./scripts/patch-domain-foss-north.sh`
-- For new.foss-north.se: `./scripts/patch-domain-new-foss.sh`
+- For foss-north.aladroc.io (production, verified certs): `./scripts/patch-domain-foss-north.sh`
+- For new.foss-north.se (test/self-signed, skips SSL verify for Keycloak): `./scripts/patch-domain-new-foss.sh`
 
 Notes:
 - nginx listens on 80/443 and proxies `/` to the app (web:8000) and `/auth/` to Keycloak (8080).

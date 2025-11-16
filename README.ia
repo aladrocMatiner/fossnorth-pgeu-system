@@ -73,6 +73,7 @@ VPS config (foss-north)
 - Sample env: `docker-compose/.env.foss-north.example` (SITEBASE=https://foss-north.aladroc.io, allowed hosts, proxied Keycloak URL).
 - TLS: `./scripts/generate-selfsigned-cert.sh` -> `certs/foss-north.aladroc.io.{crt,key}`. Replace with real certs in `certs/` for prod, restart nginx.
 - Docs: see `docs/foss-north-vps.md` for end-to-end steps.
+- Keycloak SSL verify: true for foss-north (assumes trusted cert), false for new.foss (test/self-signed).
 
 TLS (self-signed)
 - Cert path mounted into nginx: `./certs` -> `/etc/nginx/certs`.
