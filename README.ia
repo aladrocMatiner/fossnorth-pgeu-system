@@ -32,6 +32,8 @@ Smoke tests
 - Basic HTTP: `./scripts/curl-check.sh`
 - SSO redirect: `./scripts/sso-check.sh` (expects Keycloak ready; checks redirect contains client_id).
 - Full SSO login with demo user: `./scripts/sso-login.sh` (uses fossnorth/fossnorth).
+- VPS proxy/TLS check: `HOSTNAME_OVERRIDE=your.host TARGET_IP=server ./scripts/vps-check.sh`
+  (ensure `DJANGO_ALLOWED_HOSTS` includes the host you test).
 
 Keycloak realm (imported automatically)
 - File: `keycloak/realm-pgeu.json` (generated from tmpl).
