@@ -26,7 +26,7 @@ Preflight
 Build/run (SSO)
 - Build: `docker compose build --no-cache`
 - Up: `docker compose up -d --build`  (or `make sso-up`)
-- Services: web (runserver 8000), db (5432), keycloak (8080, health 9000). All use host network.
+- Services: web (runserver 8000), db (5432), keycloak (8080, health 9000), nginx (port 80). All use host network.
 
 Smoke tests
 - Basic HTTP: `./scripts/curl-check.sh`
@@ -65,7 +65,7 @@ Health URLs
 - Keycloak realm base: http://127.0.0.1:8080/realms/pgeu
 - Keycloak admin console: http://127.0.0.1:8080/admin/ (admin/admin by default).
 - Keycloak health: http://127.0.0.1:9000/health/ready
-
+- Through nginx: same app routes on port 80; Keycloak exposed at http://localhost/auth/realms/pgeu
 Committing notes
 - Do NOT commit upstream `pgeu-system/` tree; keep it untracked or remove before commit.
 - Only commit helper repo changes (scripts, docs, etc.).
