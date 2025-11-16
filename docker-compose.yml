@@ -4,6 +4,10 @@ services:
       context: .
       dockerfile: docker-compose/Dockerfile
     network_mode: host
+    extra_hosts:
+      - "aladroc.io:127.0.0.1"
+      - "foss-north.aladroc.io:127.0.0.1"
+      - "new.foss-north.se:127.0.0.1"
     env_file:
       - docker-compose/.env
     environment:
@@ -44,6 +48,10 @@ services:
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_PROXY: edge
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_URL: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8080/}
+      KC_HOSTNAME_ADMIN_URL: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8080/}
     volumes:
       - ./keycloak/realm-pgeu.json:/opt/keycloak/data/import/realm-pgeu.json:ro
     healthcheck:

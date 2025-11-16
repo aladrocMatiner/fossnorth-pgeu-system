@@ -29,6 +29,7 @@ update_kv "KEYCLOAK_BASE_URL" "https://${DOMAIN}/auth/realms/pgeu"
 update_kv "KEYCLOAK_CLIENT_ID" "pgeu"
 # Test env with self-signed; disable verification
 update_kv "KEYCLOAK_SSL_VERIFY" "false"
+update_kv "KEYCLOAK_PUBLIC_URL" "https://${DOMAIN}/auth/"
 
 if [[ -f "$NGINX_CONF" ]]; then
   sed -i "s|server_name .*|    server_name ${DOMAIN} localhost _;|" "$NGINX_CONF"

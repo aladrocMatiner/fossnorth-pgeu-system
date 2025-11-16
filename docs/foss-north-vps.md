@@ -7,7 +7,7 @@ Use this when deploying on a VPS with nginx fronting both the app and Keycloak.
 cp docker-compose/.env.foss-north.example docker-compose/.env
 ```
 This sets `DJANGO_SITE_BASE=https://foss-north.aladroc.io`, allows that host, and points Keycloak to the proxied URL (`/auth/realms/pgeu`).
-`KEYCLOAK_SSL_VERIFY=true` assumes trusted certs (set false only for self-signed testing).
+`KEYCLOAK_SSL_VERIFY=true` assumes trusted certs (set false only for self-signed testing). `KEYCLOAK_PUBLIC_URL` is used for Keycloak redirects (e.g., `https://foss-north.aladroc.io/auth/`).
 
 2) Generate certs (replace with real Let’s Encrypt later):
 ```bash
