@@ -27,6 +27,10 @@ HOSTNAME_OVERRIDE=foss-north.aladroc.io TARGET_IP=127.0.0.1 ./scripts/vps-check.
 ```
 If testing remotely, set `TARGET_IP` to the VPS IP. The script hits HTTP/HTTPS homepage, login, Keycloak redirect, and OIDC config via `/auth/`.
 
+Helpers for domains
+- For foss-north.aladroc.io: `./scripts/patch-domain-foss-north.sh`
+- For new.foss-north.se: `./scripts/patch-domain-new-foss.sh`
+
 Notes:
 - nginx listens on 80/443 and proxies `/` to the app (web:8000) and `/auth/` to Keycloak (8080).
 - For production TLS, replace the self-signed certs in `certs/` and restart nginx.
