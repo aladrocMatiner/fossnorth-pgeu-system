@@ -1,9 +1,4 @@
-pgeu-system/*
-!pgeu-system/postgresqleu/
-pgeu-system/postgresqleu/*
-!pgeu-system/postgresqleu/oauthlogin/
-pgeu-system/postgresqleu/oauthlogin/*
-!pgeu-system/postgresqleu/oauthlogin/oauthclient.py
+pgeu-system/
 __pycache__/
 *.pyc
 *.pyo
