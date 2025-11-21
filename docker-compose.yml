@@ -47,13 +47,10 @@ services:
     command: ["start-dev", "--import-realm", "--health-enabled=true"]
     network_mode: host
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-auth.foss-north.se}
-      KC_HOSTNAME_URL: ${KEYCLOAK_PUBLIC_URL:-https://auth.foss-north.se/}
-      KC_HOSTNAME_ADMIN_URL: ${KEYCLOAK_PUBLIC_URL:-https://auth.foss-north.se/}
       KC_HOSTNAME_STRICT: "true"
-      KC_HOSTNAME_STRICT_HTTPS: "true"
       KC_PROXY_HEADERS: xforwarded
     volumes:
       - ./keycloak/realm-pgeu.json:/opt/keycloak/data/import/realm-pgeu.json:ro
