@@ -89,6 +89,8 @@ DATABASES = {
 
 STATIC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../staticfiles")
 MEDIA_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../media")
+
+KEYCLOAK_SSL_VERIFY = ${KEYCLOAK_SSL_VERIFY}
 EOF
 
 cd "${APP_DIR}"

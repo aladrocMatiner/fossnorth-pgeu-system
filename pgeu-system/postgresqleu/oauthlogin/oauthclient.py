@@ -59,18 +59,31 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
     redir = '{0}/accounts/login/{1}/'.format(settings.SITEBASE, provider)
 
     oa = OAuth2Session(client_id, scope=scope, redirect_uri=redir)
+    # Allow provider-specific TLS verification toggles (used for Keycloak)
+    verify = None
+    if provider == 'keycloak':
+        verify = getattr(settings, 'KEYCLOAK_SSL_VERIFY', True)
+        # Normalise possible string values like "true"/"false"
+        if isinstance(verify, str):
+            verify = verify.lower() in ('1', 'true', 'yes', 'on')
+        oa.verify = verify
+
     if 'code' in request.GET:
         log.info("Completing {0} oauth2 step from {1}".format(provider, get_client_ip(request)))
 
         # Receiving a login request from the provider, so validate data
         # and log the user in.
-        if request.GET.get('state', '') != request.session.pop('oauth_state'):
+        state_in = request.GET.get('state', '')
+        stored_state = request.session.pop('oauth_state', None)
+        if not stored_state or state_in != stored_state:
             log.warning("Invalid state received in {0} oauth2 step from {1}".format(provider, get_client_ip(request)))
             raise OAuthException("Invalid OAuth state received")
-
-        token = oa.fetch_token(tokenurl,
-                               client_secret=client_secret,
-                               code=request.GET['code'])
+        token = oa.fetch_token(
+            tokenurl,
+            client_secret=client_secret,
+            code=request.GET['code'],
+            verify=verify if verify is not None else True,
+        )
         if token.scope_changed:
             log.warning("Oauth scope changed for {0} login from '{1}' to '{2}'".format(provider, token.old_scope, token.scope))
 
