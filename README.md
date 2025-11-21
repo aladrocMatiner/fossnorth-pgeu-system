@@ -25,7 +25,11 @@ Quick links:
   ```
 
 ### Bring-up Steps
-1. Copy the environment template and edit secrets/hosts:
+1. If you're targeting the foss-north hosts (`new.foss-north.se` / `auth.foss-north.se`), let the helper script prepare `.env`, nginx, and the Keycloak realm for you (prompts have sensible defaults):
+   ```bash
+   ./scripts/setup-fossnorth.sh
+   ```
+   Otherwise, copy the environment template and edit secrets/hosts manually:
    ```bash
    cp docker-compose/.env.example docker-compose/.env
    ```
@@ -106,6 +110,9 @@ The script hits `/`, `/admin/login/`, and `/account/` using `curl`. Set
   ```
   or, manually: `./scripts/generate-keycloak-realm.sh && docker compose up -d --build`,
   and visit `/accounts/login/`.
+  If you expose Keycloak on a different host (e.g., `auth.foss-north.se`), set
+  `KEYCLOAK_PUBLIC_URL` to that URL and consider the helper
+  `./scripts/setup-fossnorth.sh` to wire `.env` and nginx automatically.
 
 Convenience Make targets
 - `make sso-up` — runs preflight, regenerates the Keycloak realm JSON from

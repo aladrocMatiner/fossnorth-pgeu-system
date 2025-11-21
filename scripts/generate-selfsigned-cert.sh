@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DOMAIN="${1:-foss-north.aladroc.io}"
+DOMAIN="${1:-new.foss-north.se}"
 CERT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/certs"
 KEY_FILE="${CERT_DIR}/${DOMAIN}.key"
 CRT_FILE="${CERT_DIR}/${DOMAIN}.crt"

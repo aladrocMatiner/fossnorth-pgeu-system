@@ -15,23 +15,22 @@ sudo usermod -aG docker "$USER" && newgrp docker
 2) Clone repos and patch upstream deps
 ```bash
 git clone https://github.com/aladrocMatiner/fossnorth-pgeu-system.git
-cd fossnorth-pgeu-system
-git clone https://github.com/pgeu/pgeu-system.git
-./scripts/patch-upstream.sh
+ cd fossnorth-pgeu-system
+ git clone https://github.com/pgeu/pgeu-system.git
+ ./scripts/patch-upstream.sh
 ```
 
-3) Pick an environment
-- **Local/test (self-signed)**: keep default `.env.example` or use the helper:
+3) Configure hosts (fast path)
+```bash
+./scripts/setup-fossnorth.sh
+```
+- Defaults: app `https://new.foss-north.se`, Keycloak `https://auth.foss-north.se`.
+- Prompts let you change hosts, toggle TLS verification, and optionally generate self-signed certs for both hosts.
+- Non-interactive example:
   ```bash
-  ./scripts/patch-domain-new-foss.sh   # sets SITEBASE=https://new.foss-north.se, disables SSL verify
-  ./scripts/generate-selfsigned-cert.sh new.foss-north.se
+  NON_INTERACTIVE=1 APP_DOMAIN=new.foss-north.se KEYCLOAK_DOMAIN=auth.foss-north.se KEYCLOAK_SSL_VERIFY=true GENERATE_CERTS=0 ./scripts/setup-fossnorth.sh
   ```
-- **VPS/production** (example aladroc.io): set real host and certs:
-  ```bash
-  ./scripts/patch-domain-foss-north.sh   # adjust to your domain if needed
-  # Place certs in certs/aladroc.io.crt and certs/aladroc.io.key (or generate self-signed for testing)
-  ```
-  Edit `docker-compose/.env` to set `DJANGO_SITE_BASE` and `KEYCLOAK_BASE_URL` to your host and set `KEYCLOAK_SSL_VERIFY=true` when using trusted certs.
+If you only need local testing on 127.0.0.1, you can still `cp docker-compose/.env.example docker-compose/.env` and keep `DJANGO_SITE_BASE=http://localhost:8000`.
 
 4) Generate realm and start
 ```bash
@@ -39,12 +38,13 @@ git clone https://github.com/pgeu/pgeu-system.git
 docker compose up -d --build
 docker compose up -d nginx
 ```
+(If you already ran `setup-fossnorth.sh`, the realm was regenerated there—running it again is safe.)
 
 5) Quick checks
 ```bash
 ./scripts/curl-check.sh          # basic pages load (direct to app)
 ./scripts/sso-check.sh           # SSO link + redirect OK
-HOSTNAME_OVERRIDE=<your-host> TARGET_IP=<ip> ./scripts/vps-check.sh   # via nginx/proxy
+HOSTNAME_OVERRIDE=<your-host> KC_HOST_OVERRIDE=<keycloak-host> TARGET_IP=<ip> ./scripts/vps-check.sh   # via nginx/proxy
 ```
 
 6) Auto login test (demo user)

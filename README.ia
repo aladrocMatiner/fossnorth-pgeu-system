@@ -67,19 +67,20 @@ Health URLs
 - Keycloak realm base: http://127.0.0.1:8080/realms/pgeu
 - Keycloak admin console: http://127.0.0.1:8080/admin/ (admin/admin by default).
 - Keycloak health: http://127.0.0.1:9000/health/ready
-- Through nginx: same app routes on port 80; Keycloak exposed at http://localhost/auth/realms/pgeu
+- Through nginx: app on https://new.foss-north.se/, Keycloak at https://auth.foss-north.se/realms/pgeu
   
 VPS config (foss-north)
-- Sample env: `docker-compose/.env.foss-north.example` (SITEBASE=https://foss-north.aladroc.io, allowed hosts, proxied Keycloak URL).
-- Keycloak public URL: `KEYCLOAK_PUBLIC_URL` (e.g., https://foss-north.aladroc.io/auth/) is passed to KC_HOSTNAME_* for correct redirects behind nginx.
-- TLS: `./scripts/generate-selfsigned-cert.sh` -> `certs/foss-north.aladroc.io.{crt,key}`. Replace with real certs in `certs/` for prod, restart nginx.
+- Sample env: `docker-compose/.env.foss-north.example` (SITEBASE=https://new.foss-north.se, allowed hosts, Keycloak base https://auth.foss-north.se/realms/pgeu).
+- Keycloak public URL: `KEYCLOAK_PUBLIC_URL` (e.g., https://auth.foss-north.se/) is passed to KC_HOSTNAME_* for correct redirects behind nginx.
+- TLS: `./scripts/generate-selfsigned-cert.sh` -> `certs/new.foss-north.se.{crt,key}` (repeat for `auth.foss-north.se`). Replace with real certs in `certs/` for prod, restart nginx.
 - Docs: see `docs/foss-north-vps.md` for end-to-end steps.
 - Keycloak SSL verify: true for foss-north (assumes trusted cert), false for new.foss (test/self-signed).
+- One-shot setup: `./scripts/setup-fossnorth.sh` (prompts for hosts, SSL verify, optional self-signed certs; defaults new.foss-north.se/auth.foss-north.se).
 
 TLS (self-signed)
 - Cert path mounted into nginx: `./certs` -> `/etc/nginx/certs`.
-- Generate self-signed for foss-north.aladroc.io: `./scripts/generate-selfsigned-cert.sh`.
-- nginx expects files: `certs/foss-north.aladroc.io.crt` and `.key`; HTTPS listens on 443 alongside HTTP 80.
+- Generate self-signed for new.foss-north.se (and auth.foss-north.se) with `./scripts/generate-selfsigned-cert.sh <domain>`.
+- nginx expects files: `certs/new.foss-north.se.crt`/`.key` and `certs/auth.foss-north.se.crt`/`.key`; HTTPS listens on 443 alongside HTTP 80.
 Committing notes
 - Do NOT commit upstream `pgeu-system/` tree; keep it untracked or remove before commit.
 - Only commit helper repo changes (scripts, docs, etc.).

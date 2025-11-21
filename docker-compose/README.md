@@ -50,6 +50,10 @@ the helper files and upstream sources are not aligned correctly yet.
    cp docker-compose/.env.example docker-compose/.env
    $EDITOR docker-compose/.env
    ```
+   *Fast path for foss-north:* `./scripts/setup-fossnorth.sh` will fill in
+   `.env`, update nginx hosts (`new.foss-north.se` / `auth.foss-north.se` by
+   default), regenerate the Keycloak realm, and optionally create self-signed
+   certs.
    - `POSTGRES_*`: database name/user/password seeded into the Postgres
      container and Django settings.
    - `DJANGO_SECRET_KEY`: set to a random string (fallback auto-generates one).
