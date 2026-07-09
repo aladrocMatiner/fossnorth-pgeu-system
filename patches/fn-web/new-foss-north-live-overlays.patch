@@ -1,0 +1,33 @@
+diff --git a/code/skin_urls.py b/code/skin_urls.py
+index e60e19a..772a59d 100644
+--- a/code/skin_urls.py
++++ b/code/skin_urls.py
+@@ -1 +1,11 @@
+-PRELOAD_URLS = []
++from django.http import HttpResponseRedirect
++from django.urls import re_path
++
++
++def pod_redirect(request, path=""):
++    return HttpResponseRedirect("https://foss-north.se/pod/" + path)
++
++
++PRELOAD_URLS = [
++    re_path(r"^pod/(?P<path>.*)$", pod_redirect),
++]
+diff --git a/template/oauthlogin/login.html b/template/oauthlogin/login.html
+index 9e96bb4..3003e2b 100644
+--- a/template/oauthlogin/login.html
++++ b/template/oauthlogin/login.html
+@@ -4,7 +4,11 @@
+ <p>Some of our services requires you to log in (buying tickets, submitting papers, etc). Please use one of the oauth providers listed below to log in to foss-north.</p>
+ {%if oauth_providers%}
+ {%for p,d in oauth_providers%}
++{%if p == "keycloak"%}
++<p><a href="/accounts/login/{{p}}/?next={{next}}"><img src="/media/img/misc/btn_login_keycloak.png" alt="Sign in with Keycloak" /></a></p>
++{%else%}
+ <p><a href="/accounts/login/{{p}}/?next={{next}}"><img src="/media/img/misc/btn_login_{{p}}.png" alt="Sign in with {{p|capfirst}}" /></a></p>
++{%endif%}
+ {%endfor%}
+ {%else%}
+ <p>No authentication providers configured.</p>

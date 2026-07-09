@@ -10,6 +10,8 @@ level flow is:
 Quick links:
 - Quick install (fast path): [quick-install-guide.md](quick-install-guide.md)
 - Simple, step-by-step (non-technical): [simple-guide-with-sso.md](simple-guide-with-sso.md)
+- Live migration state for `new.foss-north.se`:
+  [docs/new-foss-north-live-state.md](docs/new-foss-north-live-state.md)
 
 ### Prerequisites
 - Install Docker Engine + Compose plugin (Debian/Ubuntu snippet provided
