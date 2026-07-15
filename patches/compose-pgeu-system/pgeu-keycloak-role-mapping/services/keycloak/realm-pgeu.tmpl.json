@@ -1,0 +1,149 @@
+{
+  "realm": "${KEYCLOAK_REALM}",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "roles": {
+    "client": {
+      "${KEYCLOAK_CLIENT_ID}": [
+        {
+          "name": "pgeu-user",
+          "description": "Allows login to PGEU through the deployment-owned Keycloak client."
+        },
+        {
+          "name": "pgeu-superadmin",
+          "description": "Maps to Django is_staff and is_superuser during PGEU login."
+        },
+        {
+          "name": "pgeu-invoice-manager",
+          "description": "Maps to the PGEU Django group Invoice managers during login."
+        },
+        {
+          "name": "pgeu-news-admin",
+          "description": "Maps to the PGEU Django group News administrators during login."
+        },
+        {
+          "name": "pgeu-membership-admin",
+          "description": "Maps to the PGEU Django group Membership administrators during login."
+        },
+        {
+          "name": "pgeu-election-admin",
+          "description": "Maps to the PGEU Django group Election administrators during login."
+        },
+        {
+          "name": "pgeu-accounting-manager",
+          "description": "Maps to the PGEU Django group Accounting managers during login."
+        },
+        {
+          "name": "pgeu-series-admin",
+          "description": "Authorizes series administrator scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-conference-admin",
+          "description": "Authorizes conference administrator scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-conference-tester",
+          "description": "Authorizes conference tester scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-conference-talkvoter",
+          "description": "Authorizes conference talk-voter scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-conference-staff",
+          "description": "Authorizes conference staff scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-conference-volunteer",
+          "description": "Authorizes conference volunteer scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-conference-checkin-processor",
+          "description": "Authorizes conference check-in processor scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-sponsor-manager",
+          "description": "Authorizes sponsor manager scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-sponsor-badge-scanner",
+          "description": "Authorizes sponsor badge-scanner scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-meeting-admin",
+          "description": "Authorizes meeting administrator scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-wiki-viewer",
+          "description": "Authorizes conference wiki viewer scope paths carried in pgeu_groups."
+        },
+        {
+          "name": "pgeu-wiki-editor",
+          "description": "Authorizes conference wiki editor scope paths carried in pgeu_groups."
+        }
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "${KEYCLOAK_CLIENT_ID}",
+      "name": "PGEU",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KEYCLOAK_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "rootUrl": "${PGEU_SITE_BASE}",
+      "baseUrl": "/",
+      "adminUrl": "${PGEU_SITE_BASE}",
+      "redirectUris": [
+        "${PGEU_SITE_BASE}/accounts/login/keycloak/",
+        "${PGEU_SITE_BASE}/accounts/login/keycloak/*"
+      ],
+      "webOrigins": [
+        "${PGEU_SITE_BASE}"
+      ],
+      "protocolMappers": [
+        {
+          "name": "pgeu-client-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "usermodel.clientRoleMapping.clientId": "${KEYCLOAK_CLIENT_ID}",
+            "claim.name": "pgeu_roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "pgeu-group-memberships",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "pgeu_groups",
+            "full.path": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "${PGEU_SITE_BASE}/*"
+      }
+    }
+  ]
+}

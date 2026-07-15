@@ -1,0 +1,40 @@
+diff --git a/postgresqleu/oauthlogin/views.py b/postgresqleu/oauthlogin/views.py
+index 7fe32e91..7fdad383 100644
+--- a/postgresqleu/oauthlogin/views.py
++++ b/postgresqleu/oauthlogin/views.py
+@@ -1,8 +1,9 @@
+ from django.shortcuts import render
+-import django.contrib.auth.views as authviews
++from django.contrib.auth import logout as django_logout
++from django.http import HttpResponseRedirect
+ from django.conf import settings
+ 
+-from urllib.parse import quote
++from urllib.parse import quote, urlencode
+ 
+ 
+ def login(request):
+@@ -13,4 +14,22 @@ def login(request):
+ 
+ 
+ def logout(request):
+-    return authviews.logout_then_login(request, login_url='/')
++    id_token = request.session.get('oauth_keycloak_id_token', '')
++    django_logout(request)
++
++    keycloak = getattr(settings, 'OAUTH', {}).get('keycloak')
++    if keycloak:
++        baseurl = keycloak.get('baseurl', '').rstrip('/')
++        clientid = keycloak.get('clientid', '')
++        if baseurl and clientid:
++            query_args = {
++                'client_id': clientid,
++                'post_logout_redirect_uri': settings.SITEBASE,
++            }
++            if id_token:
++                query_args['id_token_hint'] = id_token
++            query = urlencode(query_args)
++            return HttpResponseRedirect(
++                '{0}/protocol/openid-connect/logout?{1}'.format(baseurl, query))
++
++    return HttpResponseRedirect(settings.SITEBASE)

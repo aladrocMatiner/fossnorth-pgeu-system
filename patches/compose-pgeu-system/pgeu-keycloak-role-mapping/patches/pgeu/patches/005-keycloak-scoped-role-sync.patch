@@ -1,0 +1,1813 @@
+diff --git a/postgresqleu/oauthlogin/oauthclient.py b/postgresqleu/oauthlogin/oauthclient.py
+index ad7179fadfd04764f265d103e7cf0a6c922b3922..e1e52c5f5ae828bce4d99415df646cce3d1190e3 100644
+--- a/postgresqleu/oauthlogin/oauthclient.py
++++ b/postgresqleu/oauthlogin/oauthclient.py
+@@ -1,10 +1,15 @@
+ from django.conf import settings
+ from django.contrib.auth import login as django_login
++from django.db import transaction
+ from django.http import HttpResponse, HttpResponseRedirect
+ from django.contrib.auth.models import Group, User
+ 
+-import base64
+-import json
++from postgresqleu.oauthlogin.rolesync import KeycloakIdentityConflict
++from postgresqleu.oauthlogin.rolesync import KEYCLOAK_SCOPED_ROLES
++from postgresqleu.oauthlogin.rolesync import get_or_bind_keycloak_user
++from postgresqleu.oauthlogin.rolesync import get_keycloak_revocation_target
++from postgresqleu.oauthlogin.rolesync import sync_keycloak_scoped_roles
++
+ import os
+ import sys
+ 
+@@ -19,6 +24,7 @@ def get_client_ip(request):
+ class OAuthException(Exception):
+     pass
+ 
++
+ KEYCLOAK_SUPERADMIN_ROLE = 'pgeu-superadmin'
+ KEYCLOAK_GROUP_ROLES = {
+     'pgeu-invoice-manager': 'Invoice managers',
+@@ -27,39 +33,14 @@ KEYCLOAK_GROUP_ROLES = {
+     'pgeu-election-admin': 'Election administrators',
+     'pgeu-accounting-manager': 'Accounting managers',
+ }
+-KEYCLOAK_ACCESS_ROLES = set(['pgeu-user', KEYCLOAK_SUPERADMIN_ROLE]) | set(KEYCLOAK_GROUP_ROLES.keys())
++KEYCLOAK_ACCESS_ROLES = (
++    {'pgeu-user', KEYCLOAK_SUPERADMIN_ROLE}
++    | set(KEYCLOAK_GROUP_ROLES.keys())
++    | KEYCLOAK_SCOPED_ROLES
++)
+ KEYCLOAK_OWNED_GROUPS = set(KEYCLOAK_GROUP_ROLES.values())
+ 
+ 
+-def _json_list(value):
+-    if isinstance(value, list):
+-        return [str(v) for v in value]
+-    if isinstance(value, str) and value:
+-        return [value]
+-    return []
+-
+-
+-def _decode_jwt_payload(token):
+-    try:
+-        payload = token.split('.')[1]
+-        payload += '=' * (-len(payload) % 4)
+-        decoded = base64.urlsafe_b64decode(payload.encode('ascii')).decode('utf-8')
+-        return json.loads(decoded)
+-    except Exception:
+-        log.warning("Unable to decode Keycloak access token payload for role sync")
+-        return {}
+-
+-
+-def _keycloak_roles_from_token(token, client_id):
+-    if not token:
+-        return set()
+-
+-    payload = _decode_jwt_payload(token)
+-    roles = set(_json_list(payload.get('pgeu_roles')))
+-    roles.update(_json_list(payload.get('resource_access', {}).get(client_id, {}).get('roles')))
+-    return roles
+-
+-
+ def _sync_keycloak_roles(user, roles):
+     desired_staff = KEYCLOAK_SUPERADMIN_ROLE in roles
+     user.is_staff = desired_staff
+@@ -89,21 +70,62 @@ def configure():
+     os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
+ 
+ 
+-def _perform_oauth_login(request, provider, email, firstname, lastname, keycloak_roles=None):
+-    try:
+-        user = User.objects.get(email=email)
+-        log.info("Oauth signin of {0} using {1} from {2}.".format(email, provider, get_client_ip(request)))
+-    except User.DoesNotExist:
+-        log.info("Oauth signin of {0} using {1} from {2}. User not found, creating new.".format(email, provider, get_client_ip(request)))
++def _converge_denied_keycloak_identity(email, keycloak_identity):
++    with transaction.atomic():
++        user, binding = get_keycloak_revocation_target(
++            email,
++            keycloak_identity['issuer'],
++            keycloak_identity['subject'],
++        )
++        if user is not None:
++            _sync_keycloak_roles(user, set())
++            if binding is not None:
++                sync_keycloak_scoped_roles(binding, set(), set())
++
++
++def _perform_oauth_login(request, provider, email, firstname, lastname, keycloak_identity=None):
++    if provider == 'keycloak' and keycloak_identity is not None:
++        if not KEYCLOAK_ACCESS_ROLES.intersection(keycloak_identity['roles']):
++            _converge_denied_keycloak_identity(email, keycloak_identity)
++            log.warning("Keycloak login rejected for missing PGEU role from {0}".format(get_client_ip(request)))
++            return HttpResponse('Your account is not enabled for PGEU access.', status=403)
++
++        try:
++            with transaction.atomic():
++                user, binding, created = get_or_bind_keycloak_user(
++                    email,
++                    firstname,
++                    lastname,
++                    keycloak_identity['issuer'],
++                    keycloak_identity['subject'],
++                )
++                _sync_keycloak_roles(user, keycloak_identity['roles'])
++                sync_keycloak_scoped_roles(
++                    binding,
++                    keycloak_identity['roles'],
++                    keycloak_identity['group_paths'],
++                )
++        except KeycloakIdentityConflict:
++            _converge_denied_keycloak_identity(email, keycloak_identity)
++            log.warning("Keycloak login rejected because identity binding is ambiguous from {0}".format(get_client_ip(request)))
++            return HttpResponse('Your Keycloak identity cannot be linked to this PGEU account.', status=403)
+ 
+-        user = User(username=email,
+-                    email=email,
+-                    first_name=firstname,
+-                    last_name=lastname)
+-        user.save()
++        if created:
++            log.info("Oauth signin of {0} using {1} from {2}. User not found, creating new.".format(email, provider, get_client_ip(request)))
++        else:
++            log.info("Oauth signin of {0} using {1} from {2}.".format(email, provider, get_client_ip(request)))
++    else:
++        try:
++            user = User.objects.get(email=email)
++            log.info("Oauth signin of {0} using {1} from {2}.".format(email, provider, get_client_ip(request)))
++        except User.DoesNotExist:
++            log.info("Oauth signin of {0} using {1} from {2}. User not found, creating new.".format(email, provider, get_client_ip(request)))
+ 
+-    if provider == 'keycloak' and keycloak_roles is not None:
+-        _sync_keycloak_roles(user, keycloak_roles)
++            user = User(username=email,
++                        email=email,
++                        first_name=firstname,
++                        last_name=lastname)
++            user.save()
+ 
+     user.backend = settings.AUTHENTICATION_BACKENDS[0]
+     django_login(request, user)
+@@ -137,26 +159,23 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
+         token = oa.fetch_token(tokenurl,
+                                client_secret=client_secret,
+                                code=request.GET['code'])
+-        keycloak_roles = None
+         if provider == 'keycloak':
+             id_token = token.get('id_token', '')
+             if id_token:
+                 request.session['oauth_keycloak_id_token'] = id_token
+-            keycloak_roles = _keycloak_roles_from_token(token.get('access_token', ''), client_id)
+-            if not KEYCLOAK_ACCESS_ROLES.intersection(keycloak_roles):
+-                log.warning("Keycloak login rejected for missing PGEU role from {0}".format(get_client_ip(request)))
+-                return HttpResponse('Your account is not enabled for PGEU access.', status=403)
+         if token.scope_changed:
+             log.warning("Oauth scope changed for {0} login from '{1}' to '{2}'".format(provider, token.old_scope, token.scope))
+ 
+         try:
+-            (email, firstname, lastname) = authdatafunc(oa)
++            authdata = authdatafunc(oa)
++            (email, firstname, lastname) = authdata[:3]
+             email = email.lower()
+         except KeyError as e:
+             log.warning("Oauth signing using {0} was missing data: {1}".format(provider, e))
+             return HttpResponse('OAuth login was missing critical data. To log in, you need to allow access to email, first name and last name!')
+ 
+-        return _perform_oauth_login(request, provider, email, firstname, lastname, keycloak_roles=keycloak_roles)
++        keycloak_identity = authdata[3] if provider == 'keycloak' else None
++        return _perform_oauth_login(request, provider, email, firstname, lastname, keycloak_identity=keycloak_identity)
+     else:
+         log.info("Initiating {0} oauth2 step from {1}".format(provider, get_client_ip(request)))
+         # First step is redirect to provider
+@@ -173,16 +192,40 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
+ #
+ # Keycloak login (generic OIDC)
+ #
+-def _validated_keycloak_profile(profile):
++def _keycloak_string_list_claim(profile, claim_name):
++    value = profile.get(claim_name, [])
++    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
++        raise OAuthException('Keycloak {0} must be a list of strings'.format(claim_name))
++    return set(value)
++
++
++def _validated_keycloak_profile(profile, issuer):
++    if not isinstance(profile, dict):
++        raise OAuthException('Keycloak userinfo response was not an object')
++    if not isinstance(issuer, str) or not issuer:
++        raise OAuthException('Keycloak issuer is not configured')
+     email = profile.get('email', '').strip()
+     if not email:
+         raise OAuthException('Keycloak did not provide an email address')
+     if profile.get('email_verified') is not True:
+         raise OAuthException('Your Keycloak email address must be verified before you can log in')
++    subject = profile.get('sub', '')
++    if not isinstance(subject, str) or not subject.strip():
++        raise OAuthException('Keycloak did not provide a valid subject identifier')
++    firstname = profile.get('given_name', '')
++    lastname = profile.get('family_name', '')
++    if not isinstance(firstname, str) or not isinstance(lastname, str):
++        raise OAuthException('Keycloak did not provide valid profile names')
+     return (
+         email,
+-        profile.get('given_name', ''),
+-        profile.get('family_name', ''),
++        firstname,
++        lastname,
++        {
++            'issuer': issuer,
++            'subject': subject.strip(),
++            'roles': _keycloak_string_list_claim(profile, 'pgeu_roles'),
++            'group_paths': _keycloak_string_list_claim(profile, 'pgeu_groups'),
++        },
+     )
+ 
+ 
+@@ -191,7 +234,7 @@ def oauth_login_keycloak(request):
+ 
+     def _keycloak_auth_data(oa):
+         r = oa.get('{0}/protocol/openid-connect/userinfo'.format(base)).json()
+-        return _validated_keycloak_profile(r)
++        return _validated_keycloak_profile(r, base)
+ 
+     return _login_oauth(
+         request,
+diff --git a/postgresqleu/oauthlogin/rolesync.py b/postgresqleu/oauthlogin/rolesync.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..05b36f4ed2bd582caa75313a2d3869501eda5b24
+--- /dev/null
++++ b/postgresqleu/oauthlogin/rolesync.py
+@@ -0,0 +1,602 @@
++from django.contrib.auth.models import User
++from django.db import IntegrityError, transaction
++
++import logging
++import re
++
++from postgresqleu.confreg.models import Conference, ConferenceRegistration, ConferenceSeries
++from postgresqleu.confsponsor.benefitclasses import get_benefit_id
++from postgresqleu.confsponsor.models import Sponsor, SponsorClaimedBenefit, SponsorScanner
++from postgresqleu.confwiki.models import Wikipage
++from postgresqleu.membership.models import Meeting, Member
++from postgresqleu.util.models import KeycloakIdentityBinding, KeycloakRoleGrant
++from postgresqleu.util.random import generate_random_token
++
++
++log = logging.getLogger(__name__)
++
++
++KEYCLOAK_SCOPED_ROLES = {
++    'pgeu-series-admin',
++    'pgeu-conference-admin',
++    'pgeu-conference-tester',
++    'pgeu-conference-talkvoter',
++    'pgeu-conference-staff',
++    'pgeu-conference-volunteer',
++    'pgeu-conference-checkin-processor',
++    'pgeu-wiki-viewer',
++    'pgeu-wiki-editor',
++    'pgeu-sponsor-manager',
++    'pgeu-sponsor-badge-scanner',
++    'pgeu-meeting-admin',
++}
++
++
++class KeycloakIdentityConflict(Exception):
++    pass
++
++
++def _single_user_for_email(email):
++    users = list(User.objects.select_for_update().filter(email__iexact=email)[:2])
++    if len(users) > 1:
++        raise KeycloakIdentityConflict('Multiple Django users have the verified Keycloak email')
++    return users[0] if users else None
++
++
++@transaction.atomic
++def get_keycloak_revocation_target(email, issuer, subject):
++    if not issuer or not subject:
++        return None, None
++
++    binding = KeycloakIdentityBinding.objects.select_for_update().select_related('user').filter(
++        issuer=issuer,
++        subject=subject,
++    ).first()
++    if binding is not None:
++        binding.save(update_fields=['last_seen_at'])
++        return binding.user, binding
++
++    users = list(User.objects.select_for_update().filter(email__iexact=email)[:2])
++    if len(users) != 1:
++        return None, None
++    user = users[0]
++    user_binding = KeycloakIdentityBinding.objects.select_for_update().filter(
++        issuer=issuer,
++        user=user,
++    ).first()
++    if user_binding is not None:
++        return None, None
++    return user, None
++
++
++def _validate_binding_pair(binding, user, issuer, subject):
++    if binding is None or binding.issuer != issuer:
++        raise KeycloakIdentityConflict('Keycloak identity binding is missing or has the wrong issuer')
++    if binding.subject != subject or binding.user_id != user.pk:
++        raise KeycloakIdentityConflict('Keycloak subject and Django user binding are ambiguous')
++
++
++def _require_active_user(user):
++    if not user.is_active:
++        raise KeycloakIdentityConflict('The bound Django user is inactive')
++
++
++@transaction.atomic
++def get_or_bind_keycloak_user(email, firstname, lastname, issuer, subject):
++    subject_binding = KeycloakIdentityBinding.objects.select_for_update().select_related('user').filter(
++        issuer=issuer,
++        subject=subject,
++    ).first()
++    email_user = _single_user_for_email(email)
++
++    if subject_binding is not None:
++        if email_user is not None and email_user.pk != subject_binding.user_id:
++            raise KeycloakIdentityConflict('Verified email belongs to a different bound Django user')
++        _require_active_user(subject_binding.user)
++        subject_binding.save(update_fields=['last_seen_at'])
++        return subject_binding.user, subject_binding, False
++
++    created = False
++    user = email_user
++    if user is None:
++        user = User(
++            username=email,
++            email=email,
++            first_name=firstname,
++            last_name=lastname,
++        )
++        user.save()
++        created = True
++
++    _require_active_user(user)
++    user_binding = KeycloakIdentityBinding.objects.select_for_update().filter(
++        issuer=issuer,
++        user=user,
++    ).first()
++    if user_binding is not None:
++        _validate_binding_pair(user_binding, user, issuer, subject)
++        user_binding.save(update_fields=['last_seen_at'])
++        return user, user_binding, created
++
++    try:
++        with transaction.atomic():
++            binding = KeycloakIdentityBinding.objects.create(
++                user=user,
++                issuer=issuer,
++                subject=subject,
++            )
++    except IntegrityError:
++        binding = KeycloakIdentityBinding.objects.select_for_update().filter(
++            issuer=issuer,
++            subject=subject,
++        ).first()
++        _validate_binding_pair(binding, user, issuer, subject)
++
++    return user, binding, created
++
++
++_SERIES_GROUP = re.compile(r'/pgeu/series/(?P<pk>[1-9][0-9]*)/roles/admin')
++_CONFERENCE_GROUP = re.compile(
++    r'/pgeu/conferences/(?P<conference>[a-z0-9_]+)/roles/'
++    r'(?P<role>admin|tester|talkvoter|staff|volunteer|checkin-processor)'
++)
++_WIKI_GROUP = re.compile(
++    r'/pgeu/conferences/(?P<conference>[a-z0-9_]+)/wiki/'
++    r'(?P<wiki>[A-Za-z0-9_-]+)/roles/(?P<role>viewer|editor)'
++)
++_SPONSOR_GROUP = re.compile(
++    r'/pgeu/sponsors/(?P<pk>[1-9][0-9]*)/roles/(?P<role>manager|badge-scanner)'
++)
++_MEETING_GROUP = re.compile(r'/pgeu/meetings/(?P<pk>[1-9][0-9]*)/roles/admin')
++
++
++_CONFERENCE_ROLE_GRANTS = {
++    'admin': ('pgeu-conference-admin', 'conference-admin'),
++    'tester': ('pgeu-conference-tester', 'conference-tester'),
++    'talkvoter': ('pgeu-conference-talkvoter', 'conference-talkvoter'),
++    'staff': ('pgeu-conference-staff', 'conference-staff'),
++    'volunteer': ('pgeu-conference-volunteer', 'conference-volunteer'),
++    'checkin-processor': ('pgeu-conference-checkin-processor', 'conference-checkin-processor'),
++}
++_WIKI_ROLE_GRANTS = {
++    'viewer': ('pgeu-wiki-viewer', 'wiki-viewer'),
++    'editor': ('pgeu-wiki-editor', 'wiki-editor'),
++}
++_SPONSOR_ROLE_GRANTS = {
++    'manager': ('pgeu-sponsor-manager', 'sponsor-manager'),
++    'badge-scanner': ('pgeu-sponsor-badge-scanner', 'sponsor-badge-scanner'),
++}
++_DIRECT_CONFERENCE_RELATIONS = {
++    'conference-admin': 'administrators',
++    'conference-tester': 'testers',
++    'conference-talkvoter': 'talkvoters',
++    'conference-staff': 'staff',
++}
++_REGISTRATION_CONFERENCE_RELATIONS = {
++    'conference-volunteer': 'volunteers',
++    'conference-checkin-processor': 'checkinprocessors',
++}
++
++
++def _parse_keycloak_group_path(path):
++    if not isinstance(path, str):
++        return None
++
++    match = _SERIES_GROUP.fullmatch(path)
++    if match:
++        return {
++            'client_role': 'pgeu-series-admin',
++            'grant_type': 'series-admin',
++            'pk': match.group('pk'),
++        }
++
++    match = _CONFERENCE_GROUP.fullmatch(path)
++    if match:
++        client_role, grant_type = _CONFERENCE_ROLE_GRANTS[match.group('role')]
++        return {
++            'client_role': client_role,
++            'grant_type': grant_type,
++            'conference': match.group('conference'),
++        }
++
++    match = _WIKI_GROUP.fullmatch(path)
++    if match:
++        client_role, grant_type = _WIKI_ROLE_GRANTS[match.group('role')]
++        return {
++            'client_role': client_role,
++            'grant_type': grant_type,
++            'conference': match.group('conference'),
++            'wiki': match.group('wiki'),
++        }
++
++    match = _SPONSOR_GROUP.fullmatch(path)
++    if match:
++        client_role, grant_type = _SPONSOR_ROLE_GRANTS[match.group('role')]
++        return {
++            'client_role': client_role,
++            'grant_type': grant_type,
++            'pk': match.group('pk'),
++        }
++
++    match = _MEETING_GROUP.fullmatch(path)
++    if match:
++        return {
++            'client_role': 'pgeu-meeting-admin',
++            'grant_type': 'meeting-admin',
++            'pk': match.group('pk'),
++        }
++
++    return None
++
++
++def _authorized_group_specs(roles, group_paths):
++    for path in sorted(group_paths, key=lambda value: str(value)):
++        spec = _parse_keycloak_group_path(path)
++        if spec is None:
++            log.warning("Ignoring malformed Keycloak pgeu_groups path: {0!r}".format(path))
++            continue
++        if spec['client_role'] not in roles:
++            log.warning(
++                "Ignoring Keycloak pgeu_groups path without required client role {0}: {1}".format(
++                    spec['client_role'],
++                    path,
++                )
++            )
++            continue
++        yield path, spec
++
++
++def _active_registration(user, conference, registration_pk=None):
++    registrations = ConferenceRegistration.objects.filter(
++        conference=conference,
++        attendee=user,
++        payconfirmedat__isnull=False,
++        canceledat__isnull=True,
++    )
++    if registration_pk is not None:
++        registrations = registrations.filter(pk=registration_pk)
++    return registrations.order_by('pk').first()
++
++
++def _badge_scanner_registration(user, sponsor, registration_pk=None):
++    if not sponsor.confirmed or not sponsor.conference.askbadgescan:
++        return None
++
++    if not SponsorClaimedBenefit.objects.filter(
++            sponsor=sponsor,
++            benefit__benefit_class=get_benefit_id('badgescanning.BadgeScanning'),
++            declined=False,
++            confirmed=True).exists():
++        return None
++
++    return _active_registration(user, sponsor.conference, registration_pk)
++
++
++def _resolve_keycloak_grant(user, path, spec):
++    grant_type = spec['grant_type']
++    relation_target = user.pk
++    relation_record = ''
++
++    if grant_type == 'series-admin':
++        target = ConferenceSeries.objects.filter(pk=spec['pk']).first()
++    elif grant_type in _DIRECT_CONFERENCE_RELATIONS:
++        target = Conference.objects.filter(urlname=spec['conference']).first()
++    elif grant_type in _REGISTRATION_CONFERENCE_RELATIONS:
++        target = Conference.objects.filter(urlname=spec['conference']).first()
++        registration = _active_registration(user, target) if target is not None else None
++        if registration is None:
++            target = None
++        else:
++            relation_target = registration.pk
++    elif grant_type in ('wiki-viewer', 'wiki-editor'):
++        target = Wikipage.objects.select_related('conference').filter(
++            conference__urlname=spec['conference'],
++            url=spec['wiki'],
++        ).first()
++        registration = _active_registration(user, target.conference) if target is not None else None
++        if registration is None:
++            target = None
++        else:
++            relation_target = registration.pk
++    elif grant_type in ('sponsor-manager', 'sponsor-badge-scanner'):
++        target = Sponsor.objects.select_related('conference').filter(pk=spec['pk']).first()
++        if grant_type == 'sponsor-badge-scanner' and target is not None:
++            registration = _badge_scanner_registration(user, target)
++            if registration is None:
++                target = None
++            else:
++                relation_target = registration.pk
++                scanner = SponsorScanner.objects.filter(sponsor=target, scanner=registration).first()
++                if scanner is not None:
++                    relation_record = str(scanner.pk)
++    elif grant_type == 'meeting-admin':
++        target = Meeting.objects.filter(pk=spec['pk']).first()
++        member = Member.objects.filter(user=user).first() if target is not None else None
++        if member is None:
++            target = None
++        else:
++            relation_target = member.pk
++    else:
++        target = None
++
++    if target is None:
++        log.warning("Ignoring Keycloak scoped grant with missing relationship prerequisites: {0}".format(path))
++        return None
++    return grant_type, str(target.pk), str(relation_target), relation_record
++
++
++def _desired_keycloak_grants(user, roles, group_paths):
++    desired = {}
++
++    for path, spec in _authorized_group_specs(roles, group_paths):
++        grant = _resolve_keycloak_grant(user, path, spec)
++        if grant is not None:
++            desired[(spec['client_role'], path)] = grant
++
++    return desired
++
++
++def _target_pk(target):
++    try:
++        return int(target)
++    except (TypeError, ValueError):
++        return None
++
++
++def _grant_exists(user, grant):
++    grant_type, target, relation_target, relation_record = grant
++
++    target_pk = _target_pk(target)
++    relation_pk = _target_pk(relation_target)
++    if target_pk is None or relation_pk is None:
++        return False
++
++    if grant_type == 'series-admin':
++        return ConferenceSeries.objects.filter(pk=target_pk, administrators__pk=relation_pk).exists()
++    if grant_type in _DIRECT_CONFERENCE_RELATIONS:
++        relation = _DIRECT_CONFERENCE_RELATIONS[grant_type]
++        conference = Conference.objects.filter(pk=target_pk).first()
++        return conference is not None and getattr(conference, relation).filter(pk=relation_pk).exists()
++    if grant_type in _REGISTRATION_CONFERENCE_RELATIONS:
++        relation = _REGISTRATION_CONFERENCE_RELATIONS[grant_type]
++        conference = Conference.objects.filter(pk=target_pk).first()
++        return conference is not None and getattr(conference, relation).filter(pk=relation_pk).exists()
++    if grant_type in ('wiki-viewer', 'wiki-editor'):
++        relation = 'viewer_attendee' if grant_type == 'wiki-viewer' else 'editor_attendee'
++        page = Wikipage.objects.filter(pk=target_pk).first()
++        return page is not None and getattr(page, relation).filter(pk=relation_pk).exists()
++    if grant_type == 'sponsor-manager':
++        return Sponsor.objects.filter(pk=target_pk, managers__pk=relation_pk).exists()
++    if grant_type == 'sponsor-badge-scanner':
++        relation_record_pk = _target_pk(relation_record)
++        return relation_record_pk is not None and SponsorScanner.objects.filter(
++            pk=relation_record_pk,
++            sponsor_id=target_pk,
++            scanner_id=relation_pk,
++        ).exists()
++    if grant_type == 'meeting-admin':
++        return Meeting.objects.filter(pk=target_pk, meetingadmins__pk=relation_pk).exists()
++    return False
++
++
++def _add_grant(user, grant):
++    grant_type, target, relation_target, relation_record = grant
++
++    target_pk = _target_pk(target)
++    relation_pk = _target_pk(relation_target)
++    if target_pk is None or relation_pk is None:
++        return None
++
++    if grant_type == 'series-admin':
++        if relation_pk != user.pk:
++            return None
++        series = ConferenceSeries.objects.filter(pk=target_pk).first()
++        if series is None:
++            return None
++        series.administrators.add(user)
++        return grant, True
++    if grant_type in _DIRECT_CONFERENCE_RELATIONS:
++        if relation_pk != user.pk:
++            return None
++        conference = Conference.objects.filter(pk=target_pk).first()
++        if conference is None:
++            return None
++        getattr(conference, _DIRECT_CONFERENCE_RELATIONS[grant_type]).add(user)
++        return grant, True
++    if grant_type in _REGISTRATION_CONFERENCE_RELATIONS:
++        conference = Conference.objects.filter(pk=target_pk).first()
++        if conference is None:
++            return None
++        registration = _active_registration(user, conference, relation_pk)
++        if registration is None:
++            return None
++        getattr(conference, _REGISTRATION_CONFERENCE_RELATIONS[grant_type]).add(registration)
++        return grant, True
++    if grant_type in ('wiki-viewer', 'wiki-editor'):
++        page = Wikipage.objects.select_related('conference').filter(pk=target_pk).first()
++        if page is None:
++            return None
++        registration = _active_registration(user, page.conference, relation_pk)
++        if registration is None:
++            return None
++        relation = 'viewer_attendee' if grant_type == 'wiki-viewer' else 'editor_attendee'
++        getattr(page, relation).add(registration)
++        return grant, True
++    if grant_type == 'sponsor-manager':
++        if relation_pk != user.pk:
++            return None
++        sponsor = Sponsor.objects.filter(pk=target_pk).first()
++        if sponsor is None:
++            return None
++        sponsor.managers.add(user)
++        return grant, True
++    if grant_type == 'sponsor-badge-scanner':
++        sponsor = Sponsor.objects.select_related('conference').filter(pk=target_pk).first()
++        if sponsor is None:
++            return None
++        registration = _badge_scanner_registration(user, sponsor, relation_pk)
++        if registration is None:
++            return None
++        scanner, created = SponsorScanner.objects.get_or_create(
++            sponsor=sponsor,
++            scanner=registration,
++            defaults={'token': generate_random_token()},
++        )
++        return (grant_type, target, relation_target, str(scanner.pk)), created
++    if grant_type == 'meeting-admin':
++        meeting = Meeting.objects.filter(pk=target_pk).first()
++        member = Member.objects.filter(pk=relation_pk, user=user).first()
++        if meeting is None or member is None:
++            return None
++        meeting.meetingadmins.add(member)
++        return grant, True
++    return None
++
++
++def _remove_grant(user, grant):
++    grant_type, target, relation_target, relation_record = grant
++
++    target_pk = _target_pk(target)
++    relation_pk = _target_pk(relation_target)
++    if target_pk is None or relation_pk is None:
++        return
++
++    if grant_type == 'series-admin':
++        series = ConferenceSeries.objects.filter(pk=target_pk).first()
++        if series is not None and relation_pk == user.pk:
++            series.administrators.remove(user)
++        return
++    if grant_type in _DIRECT_CONFERENCE_RELATIONS:
++        conference = Conference.objects.filter(pk=target_pk).first()
++        if conference is not None and relation_pk == user.pk:
++            getattr(conference, _DIRECT_CONFERENCE_RELATIONS[grant_type]).remove(user)
++        return
++    if grant_type in _REGISTRATION_CONFERENCE_RELATIONS:
++        conference = Conference.objects.filter(pk=target_pk).first()
++        registration = ConferenceRegistration.objects.filter(pk=relation_pk).first()
++        if conference is not None and registration is not None:
++            getattr(conference, _REGISTRATION_CONFERENCE_RELATIONS[grant_type]).remove(registration)
++        return
++    if grant_type in ('wiki-viewer', 'wiki-editor'):
++        page = Wikipage.objects.select_related('conference').filter(pk=target_pk).first()
++        registration = ConferenceRegistration.objects.filter(pk=relation_pk).first()
++        if page is not None and registration is not None:
++            relation = 'viewer_attendee' if grant_type == 'wiki-viewer' else 'editor_attendee'
++            getattr(page, relation).remove(registration)
++        return
++    if grant_type == 'sponsor-manager':
++        sponsor = Sponsor.objects.filter(pk=target_pk).first()
++        if sponsor is not None and relation_pk == user.pk:
++            sponsor.managers.remove(user)
++        return
++    if grant_type == 'sponsor-badge-scanner':
++        relation_record_pk = _target_pk(relation_record)
++        if relation_record_pk is None:
++            return
++        scanners = SponsorScanner.objects.filter(
++            pk=relation_record_pk,
++            sponsor_id=target_pk,
++            scanner_id=relation_pk,
++        )
++        if scanners.exists():
++            log.warning(
++                "Revoking Keycloak-owned sponsor badge scanner for user id {0}, registration id {1}; historical scans are retained".format(
++                    user.pk,
++                    relation_pk,
++                )
++            )
++            scanners.delete()
++        return
++    if grant_type == 'meeting-admin':
++        meeting = Meeting.objects.filter(pk=target_pk).first()
++        member = Member.objects.filter(pk=relation_pk).first()
++        if meeting is not None and member is not None:
++            meeting.meetingadmins.remove(member)
++
++
++def _plan_keycloak_grant_sync(current, desired, existing):
++    stale = {
++        claim
++        for claim, (grant, _owned) in current.items()
++        if claim not in desired or desired[claim] != grant
++    }
++    remove = {claim for claim in stale if current[claim][1]}
++    add = set(desired.keys()) - existing
++
++    resulting_ownership = {}
++    for claim in desired:
++        if claim not in existing:
++            resulting_ownership[claim] = True
++        elif claim in current and claim not in stale:
++            resulting_ownership[claim] = current[claim][1]
++        else:
++            resulting_ownership[claim] = False
++
++    return add, remove, stale, resulting_ownership
++
++
++@transaction.atomic
++def sync_keycloak_scoped_roles(binding, roles, group_paths):
++    user = binding.user
++    desired = _desired_keycloak_grants(user, roles, group_paths)
++    records = {
++        (record.client_role, record.group_path): record
++        for record in KeycloakRoleGrant.objects.select_for_update().filter(binding=binding)
++    }
++    current = {
++        claim: (
++            (record.grant_type, record.target, record.relation_target, record.relation_record),
++            record.owned,
++        )
++        for claim, record in records.items()
++    }
++    existing = {
++        claim
++        for claim, grant in desired.items()
++        if _grant_exists(user, grant)
++    }
++
++    add, remove, stale, resulting_ownership = _plan_keycloak_grant_sync(current, desired, existing)
++
++    for claim in sorted(remove):
++        _remove_grant(user, current[claim][0])
++    for claim in sorted(stale):
++        records[claim].delete()
++
++    failed = set()
++    for claim in sorted(add):
++        applied = _add_grant(user, desired[claim])
++        if applied is None:
++            failed.add(claim)
++            log.warning(
++                "Unable to apply Keycloak grant after relationship prerequisites changed: {0}:{1}".format(
++                    desired[claim][0],
++                    desired[claim][1],
++                )
++            )
++        else:
++            desired[claim], relation_created = applied
++            if not relation_created:
++                resulting_ownership[claim] = False
++
++    for claim in sorted(set(desired.keys()) - failed):
++        grant = desired[claim]
++        KeycloakRoleGrant.objects.update_or_create(
++            binding=binding,
++            client_role=claim[0],
++            group_path=claim[1],
++            defaults={
++                'grant_type': grant[0],
++                'target': grant[1],
++                'relation_target': grant[2],
++                'relation_record': grant[3],
++                'owned': resulting_ownership[claim],
++            },
++        )
++
++    for claim in failed:
++        KeycloakRoleGrant.objects.filter(
++            binding=binding,
++            client_role=claim[0],
++            group_path=claim[1],
++        ).delete()
+diff --git a/postgresqleu/oauthlogin/tests.py b/postgresqleu/oauthlogin/tests.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..ce450f44c207bb64f8164da5d040569ba30f3260
+--- /dev/null
++++ b/postgresqleu/oauthlogin/tests.py
+@@ -0,0 +1,840 @@
++from types import SimpleNamespace
++from unittest.mock import patch
++
++from django.contrib.auth.models import Group, User
++from django.test import SimpleTestCase, TestCase
++from django.utils import timezone
++
++from postgresqleu.confreg.models import Conference, ConferenceRegistration, ConferenceSeries
++from postgresqleu.confsponsor.benefitclasses import get_benefit_id
++from postgresqleu.confsponsor.models import ScannedAttendee, Sponsor, SponsorClaimedBenefit
++from postgresqleu.confsponsor.models import SponsorScanner, SponsorshipBenefit, SponsorshipLevel
++from postgresqleu.confwiki.models import Wikipage
++from postgresqleu.oauthlogin.oauthclient import OAuthException
++from postgresqleu.oauthlogin.oauthclient import _perform_oauth_login
++from postgresqleu.oauthlogin.oauthclient import _sync_keycloak_roles
++from postgresqleu.oauthlogin.oauthclient import _validated_keycloak_profile
++from postgresqleu.oauthlogin.rolesync import KeycloakIdentityConflict
++from postgresqleu.oauthlogin.rolesync import _authorized_group_specs
++from postgresqleu.oauthlogin.rolesync import _badge_scanner_registration
++from postgresqleu.oauthlogin.rolesync import _parse_keycloak_group_path
++from postgresqleu.oauthlogin.rolesync import _plan_keycloak_grant_sync
++from postgresqleu.oauthlogin.rolesync import _resolve_keycloak_grant
++from postgresqleu.oauthlogin.rolesync import get_or_bind_keycloak_user
++from postgresqleu.oauthlogin.rolesync import sync_keycloak_scoped_roles
++from postgresqleu.util.models import KeycloakIdentityBinding, KeycloakRoleGrant
++
++
++class KeycloakUserinfoClaimTests(SimpleTestCase):
++    issuer = 'https://auth.example.test/realms/pgeu'
++
++    def test_verified_userinfo_returns_subject_roles_and_exact_group_paths(self):
++        path = '/pgeu/series/1/roles/admin'
++        email, firstname, lastname, identity = _validated_keycloak_profile(
++            {
++                'sub': 'subject-1',
++                'email': ' Person@Example.org ',
++                'email_verified': True,
++                'given_name': 'Person',
++                'family_name': 'Example',
++                'pgeu_roles': ['pgeu-series-admin'],
++                'pgeu_groups': [path],
++            },
++            self.issuer,
++        )
++        self.assertEqual((email, firstname, lastname), ('Person@Example.org', 'Person', 'Example'))
++        self.assertEqual(identity['issuer'], self.issuer)
++        self.assertEqual(identity['subject'], 'subject-1')
++        self.assertEqual(identity['roles'], {'pgeu-series-admin'})
++        self.assertEqual(identity['group_paths'], {path})
++
++    def test_userinfo_missing_verified_email_or_subject_fails_closed(self):
++        profiles = (
++            {'sub': 'subject-1', 'email': '', 'email_verified': True},
++            {'sub': 'subject-1', 'email': 'person@example.org', 'email_verified': False},
++            {'sub': 'subject-1', 'email': 'person@example.org'},
++            {'email': 'person@example.org', 'email_verified': True},
++            {'sub': '', 'email': 'person@example.org', 'email_verified': True},
++        )
++        for profile in profiles:
++            with self.subTest(profile=profile):
++                with self.assertRaises(OAuthException):
++                    _validated_keycloak_profile(profile, self.issuer)
++
++    def test_role_and_group_claim_shapes_fail_closed(self):
++        base = {
++            'sub': 'subject-1',
++            'email': 'person@example.org',
++            'email_verified': True,
++        }
++        for claim, invalid_value in (
++                ('pgeu_roles', 'pgeu-user'),
++                ('pgeu_roles', ['pgeu-user', 1]),
++                ('pgeu_groups', '/pgeu/series/1/roles/admin'),
++                ('pgeu_groups', ['/pgeu/series/1/roles/admin', 1])):
++            profile = dict(base)
++            profile[claim] = invalid_value
++            with self.subTest(claim=claim, invalid_value=invalid_value):
++                with self.assertRaises(OAuthException):
++                    _validated_keycloak_profile(profile, self.issuer)
++
++    def test_missing_issuer_fails_closed(self):
++        with self.assertRaises(OAuthException):
++            _validated_keycloak_profile(
++                {
++                    'sub': 'subject-1',
++                    'email': 'person@example.org',
++                    'email_verified': True,
++                },
++                '',
++            )
++
++
++class KeycloakGroupPathParserTests(SimpleTestCase):
++    valid_paths = {
++        '/pgeu/series/12/roles/admin': ('pgeu-series-admin', 'series-admin'),
++        '/pgeu/conferences/fossnorth_2027/roles/admin': ('pgeu-conference-admin', 'conference-admin'),
++        '/pgeu/conferences/fossnorth_2027/roles/tester': ('pgeu-conference-tester', 'conference-tester'),
++        '/pgeu/conferences/fossnorth_2027/roles/talkvoter': ('pgeu-conference-talkvoter', 'conference-talkvoter'),
++        '/pgeu/conferences/fossnorth_2027/roles/staff': ('pgeu-conference-staff', 'conference-staff'),
++        '/pgeu/conferences/fossnorth_2027/roles/volunteer': ('pgeu-conference-volunteer', 'conference-volunteer'),
++        '/pgeu/conferences/fossnorth_2027/roles/checkin-processor': ('pgeu-conference-checkin-processor', 'conference-checkin-processor'),
++        '/pgeu/conferences/fossnorth_2027/wiki/Planning-2027/roles/viewer': ('pgeu-wiki-viewer', 'wiki-viewer'),
++        '/pgeu/conferences/fossnorth_2027/wiki/Planning-2027/roles/editor': ('pgeu-wiki-editor', 'wiki-editor'),
++        '/pgeu/sponsors/34/roles/manager': ('pgeu-sponsor-manager', 'sponsor-manager'),
++        '/pgeu/sponsors/34/roles/badge-scanner': ('pgeu-sponsor-badge-scanner', 'sponsor-badge-scanner'),
++        '/pgeu/meetings/56/roles/admin': ('pgeu-meeting-admin', 'meeting-admin'),
++    }
++
++    def test_all_canonical_paths_map_to_the_matching_client_role(self):
++        for path, expected in self.valid_paths.items():
++            with self.subTest(path=path):
++                spec = _parse_keycloak_group_path(path)
++                self.assertEqual((spec['client_role'], spec['grant_type']), expected)
++
++    def test_malformed_and_cross_scope_paths_are_rejected(self):
++        malformed = (
++            'pgeu/series/1/roles/admin',
++            '/pgeu/series/0/roles/admin',
++            '/pgeu/series/01/roles/admin',
++            '/pgeu/series/1/admin',
++            '/pgeu/conferences/FossNorth/roles/admin',
++            '/pgeu/conferences/foss-north/roles/admin',
++            '/pgeu/conferences/fossnorth/roles/badge-scanner',
++            '/pgeu/conferences/fossnorth/wiki/page/roles/admin',
++            '/pgeu/wiki/1/roles/editor',
++            '/pgeu/sponsors/1/roles/admin',
++            '/pgeu/meetings/1/roles/editor',
++            '/pgeu/meetings/1/roles/admin/',
++        )
++        for path in malformed:
++            with self.subTest(path=path):
++                self.assertIsNone(_parse_keycloak_group_path(path))
++
++    def test_path_and_matching_client_role_are_both_required(self):
++        path = '/pgeu/sponsors/34/roles/manager'
++        self.assertEqual(list(_authorized_group_specs({'pgeu-user'}, {path})), [])
++        authorized = list(_authorized_group_specs({'pgeu-sponsor-manager'}, {path}))
++        self.assertEqual(len(authorized), 1)
++        self.assertEqual(authorized[0][0], path)
++
++
++class KeycloakGrantPlanTests(SimpleTestCase):
++    claim = ('pgeu-series-admin', '/pgeu/series/1/roles/admin')
++    grant = ('series-admin', '1', '17', '')
++
++    def test_keycloak_owned_grant_add_idempotency_and_revoke(self):
++        desired = {self.claim: self.grant}
++        add, remove, stale, ownership = _plan_keycloak_grant_sync({}, desired, set())
++        self.assertEqual(add, {self.claim})
++        self.assertEqual(remove, set())
++        self.assertEqual(stale, set())
++        self.assertTrue(ownership[self.claim])
++
++        current = {self.claim: (self.grant, True)}
++        add, remove, stale, ownership = _plan_keycloak_grant_sync(current, desired, {self.claim})
++        self.assertEqual((add, remove, stale), (set(), set(), set()))
++        self.assertTrue(ownership[self.claim])
++
++        add, remove, stale, ownership = _plan_keycloak_grant_sync(current, {}, set())
++        self.assertEqual(add, set())
++        self.assertEqual(remove, {self.claim})
++        self.assertEqual(stale, {self.claim})
++        self.assertEqual(ownership, {})
++
++    def test_preexisting_local_grant_is_tracked_unowned_and_preserved(self):
++        desired = {self.claim: self.grant}
++        add, remove, stale, ownership = _plan_keycloak_grant_sync({}, desired, {self.claim})
++        self.assertEqual((add, remove, stale), (set(), set(), set()))
++        self.assertFalse(ownership[self.claim])
++
++        current = {self.claim: (self.grant, False)}
++        add, remove, stale, ownership = _plan_keycloak_grant_sync(current, {}, set())
++        self.assertEqual((add, remove, stale), (set(), set(), {self.claim}))
++        self.assertEqual(ownership, {})
++
++
++class KeycloakRelationshipPrerequisiteTests(SimpleTestCase):
++    def test_conference_registration_relation_fails_closed_without_registration(self):
++        conference = SimpleNamespace(pk=7)
++        spec = {
++            'client_role': 'pgeu-conference-volunteer',
++            'grant_type': 'conference-volunteer',
++            'conference': 'fossnorth',
++        }
++        with patch('postgresqleu.oauthlogin.rolesync.Conference.objects.filter') as conference_filter:
++            conference_filter.return_value.first.return_value = conference
++            with patch('postgresqleu.oauthlogin.rolesync._active_registration', return_value=None):
++                self.assertIsNone(_resolve_keycloak_grant(SimpleNamespace(pk=1), 'conference-path', spec))
++
++    def test_meeting_admin_fails_closed_without_member(self):
++        meeting = SimpleNamespace(pk=8)
++        spec = {
++            'client_role': 'pgeu-meeting-admin',
++            'grant_type': 'meeting-admin',
++            'pk': '8',
++        }
++        with patch('postgresqleu.oauthlogin.rolesync.Meeting.objects.filter') as meeting_filter:
++            meeting_filter.return_value.first.return_value = meeting
++            with patch('postgresqleu.oauthlogin.rolesync.Member.objects.filter') as member_filter:
++                member_filter.return_value.first.return_value = None
++                self.assertIsNone(_resolve_keycloak_grant(SimpleNamespace(pk=1), 'meeting-path', spec))
++
++    def test_wiki_relation_fails_closed_without_active_registration(self):
++        conference = SimpleNamespace(pk=9)
++        page = SimpleNamespace(pk=10, conference=conference)
++        spec = {
++            'client_role': 'pgeu-wiki-editor',
++            'grant_type': 'wiki-editor',
++            'conference': 'fossnorth',
++            'wiki': 'planning',
++        }
++        with patch('postgresqleu.oauthlogin.rolesync.Wikipage.objects.select_related') as wiki_related:
++            wiki_related.return_value.filter.return_value.first.return_value = page
++            with patch('postgresqleu.oauthlogin.rolesync._active_registration', return_value=None):
++                self.assertIsNone(_resolve_keycloak_grant(SimpleNamespace(pk=1), 'wiki-path', spec))
++
++    def test_badge_scanner_requires_confirmed_sponsor_and_enabled_scanning(self):
++        conference = SimpleNamespace(askbadgescan=True)
++        self.assertIsNone(_badge_scanner_registration(object(), SimpleNamespace(confirmed=False, conference=conference)))
++        self.assertIsNone(
++            _badge_scanner_registration(
++                object(),
++                SimpleNamespace(confirmed=True, conference=SimpleNamespace(askbadgescan=False)),
++            )
++        )
++
++    def test_badge_scanner_requires_confirmed_benefit_and_active_registration(self):
++        sponsor = SimpleNamespace(confirmed=True, conference=SimpleNamespace(askbadgescan=True))
++        with patch('postgresqleu.oauthlogin.rolesync.SponsorClaimedBenefit.objects.filter') as benefit_filter:
++            benefit_filter.return_value.exists.return_value = False
++            self.assertIsNone(_badge_scanner_registration(object(), sponsor))
++            benefit_filter.assert_called_once_with(
++                sponsor=sponsor,
++                benefit__benefit_class=6,
++                declined=False,
++                confirmed=True,
++            )
++
++            benefit_filter.return_value.exists.return_value = True
++            with patch('postgresqleu.oauthlogin.rolesync._active_registration', return_value=None):
++                self.assertIsNone(_badge_scanner_registration(object(), sponsor))
++
++
++class KeycloakIdentityBindingTests(TestCase):
++    issuer = 'https://auth.example.test/realms/pgeu'
++
++    def test_first_verified_login_binds_subject_and_reuses_it(self):
++        user, binding, created = get_or_bind_keycloak_user(
++            'person@example.org',
++            'Person',
++            'Example',
++            self.issuer,
++            'subject-1',
++        )
++        self.assertTrue(created)
++        self.assertEqual(binding.user, user)
++        self.assertEqual((binding.issuer, binding.subject), (self.issuer, 'subject-1'))
++        self.assertIsNotNone(binding.created_at)
++        self.assertIsNotNone(binding.last_seen_at)
++
++        same_user, same_binding, created = get_or_bind_keycloak_user(
++            'person@example.org',
++            'Person',
++            'Example',
++            self.issuer,
++            'subject-1',
++        )
++        self.assertFalse(created)
++        self.assertEqual((same_user.pk, same_binding.pk), (user.pk, binding.pk))
++
++    def test_subject_cannot_move_to_another_email_user(self):
++        first = User.objects.create_user('first', email='first@example.org')
++        second = User.objects.create_user('second', email='second@example.org')
++        KeycloakIdentityBinding.objects.create(user=first, issuer=self.issuer, subject='subject-1')
++
++        with self.assertRaises(KeycloakIdentityConflict):
++            get_or_bind_keycloak_user(
++                second.email,
++                'Second',
++                'User',
++                self.issuer,
++                'subject-1',
++            )
++
++    def test_existing_user_email_lookup_is_case_insensitive(self):
++        existing = User.objects.create_user('mixed-case', email='mixed.case@example.org')
++
++        user, binding, created = get_or_bind_keycloak_user(
++            'MIXED.CASE@EXAMPLE.ORG',
++            'Mixed',
++            'Case',
++            self.issuer,
++            'mixed-case-subject',
++        )
++
++        self.assertFalse(created)
++        self.assertEqual(user.pk, existing.pk)
++        self.assertEqual(binding.user_id, existing.pk)
++        self.assertEqual(User.objects.count(), 1)
++
++    def test_user_cannot_bind_to_another_subject_for_same_issuer(self):
++        user = User.objects.create_user('person', email='person@example.org')
++        KeycloakIdentityBinding.objects.create(user=user, issuer=self.issuer, subject='subject-1')
++
++        with self.assertRaises(KeycloakIdentityConflict):
++            get_or_bind_keycloak_user(
++                user.email,
++                'Person',
++                'Example',
++                self.issuer,
++                'subject-2',
++            )
++
++    def test_inactive_bound_user_is_rejected(self):
++        user = User.objects.create_user('inactive', email='inactive@example.org', is_active=False)
++        KeycloakIdentityBinding.objects.create(user=user, issuer=self.issuer, subject='subject-1')
++
++        with self.assertRaises(KeycloakIdentityConflict):
++            get_or_bind_keycloak_user(
++                user.email,
++                'Inactive',
++                'User',
++                self.issuer,
++                'subject-1',
++            )
++
++
++class GlobalKeycloakRoleConvergenceTests(TestCase):
++    def test_global_flags_and_groups_still_revoke_after_provenance_migration(self):
++        user = User.objects.create_user('manager', email='manager@example.org', is_staff=True, is_superuser=True)
++        group = Group.objects.get(name='News administrators')
++        user.groups.add(group)
++        KeycloakIdentityBinding.objects.create(
++            user=user,
++            issuer='https://auth.example.test/realms/pgeu',
++            subject='manager-subject',
++        )
++
++        _sync_keycloak_roles(user, set())
++        user.refresh_from_db()
++        self.assertFalse(user.is_staff)
++        self.assertFalse(user.is_superuser)
++        self.assertFalse(user.groups.filter(name=group.name).exists())
++        self.assertEqual(KeycloakRoleGrant.objects.count(), 0)
++
++
++class KeycloakDeniedCallbackConvergenceTests(TestCase):
++    issuer = 'https://auth.example.test/realms/pgeu'
++
++    def _request(self):
++        return SimpleNamespace(META={'REMOTE_ADDR': '192.0.2.10'})
++
++    def _identity(self, subject, roles=None, group_paths=None):
++        return {
++            'issuer': self.issuer,
++            'subject': subject,
++            'roles': set() if roles is None else roles,
++            'group_paths': set() if group_paths is None else group_paths,
++        }
++
++    def test_bound_roleless_callback_revokes_global_and_owned_scoped_grants(self):
++        user = User.objects.create_user(
++            'bound-manager',
++            email='bound-manager@example.org',
++            is_staff=True,
++            is_superuser=True,
++        )
++        global_group = Group.objects.get(name='News administrators')
++        user.groups.add(global_group)
++        binding = KeycloakIdentityBinding.objects.create(
++            user=user,
++            issuer=self.issuer,
++            subject='bound-subject',
++        )
++        series = ConferenceSeries.objects.create(name='Bound series')
++        path = '/pgeu/series/{0}/roles/admin'.format(series.pk)
++        sync_keycloak_scoped_roles(binding, {'pgeu-series-admin'}, {path})
++        self.assertTrue(series.administrators.filter(pk=user.pk).exists())
++        self.assertTrue(KeycloakRoleGrant.objects.filter(binding=binding, owned=True).exists())
++
++        with patch('postgresqleu.oauthlogin.oauthclient.django_login') as login_mock:
++            response = _perform_oauth_login(
++                self._request(),
++                'keycloak',
++                user.email.lower(),
++                user.first_name,
++                user.last_name,
++                keycloak_identity=self._identity('bound-subject'),
++            )
++
++        self.assertEqual(response.status_code, 403)
++        login_mock.assert_not_called()
++        user.refresh_from_db()
++        self.assertFalse(user.is_staff)
++        self.assertFalse(user.is_superuser)
++        self.assertFalse(user.groups.filter(pk=global_group.pk).exists())
++        self.assertFalse(series.administrators.filter(pk=user.pk).exists())
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=binding).exists())
++        self.assertTrue(KeycloakIdentityBinding.objects.filter(pk=binding.pk).exists())
++
++    def test_unbound_migration_window_user_loses_global_grants_without_binding(self):
++        user = User.objects.create_user(
++            'legacy-manager',
++            email='legacy-manager@example.org',
++            is_staff=True,
++            is_superuser=True,
++        )
++        global_group = Group.objects.get(name='News administrators')
++        user.groups.add(global_group)
++
++        with patch('postgresqleu.oauthlogin.oauthclient.django_login') as login_mock:
++            response = _perform_oauth_login(
++                self._request(),
++                'keycloak',
++                user.email.upper(),
++                user.first_name,
++                user.last_name,
++                keycloak_identity=self._identity('unbound-subject'),
++            )
++
++        self.assertEqual(response.status_code, 403)
++        login_mock.assert_not_called()
++        user.refresh_from_db()
++        self.assertFalse(user.is_staff)
++        self.assertFalse(user.is_superuser)
++        self.assertFalse(user.groups.filter(pk=global_group.pk).exists())
++        self.assertFalse(KeycloakIdentityBinding.objects.exists())
++        self.assertFalse(KeycloakRoleGrant.objects.exists())
++
++    def test_unbound_unknown_roleless_identity_creates_nothing(self):
++        with patch('postgresqleu.oauthlogin.oauthclient.django_login') as login_mock:
++            response = _perform_oauth_login(
++                self._request(),
++                'keycloak',
++                'unknown@example.org',
++                'Unknown',
++                'User',
++                keycloak_identity=self._identity('unknown-subject'),
++            )
++
++        self.assertEqual(response.status_code, 403)
++        login_mock.assert_not_called()
++        self.assertFalse(User.objects.exists())
++        self.assertFalse(KeycloakIdentityBinding.objects.exists())
++
++    def test_unbound_ambiguous_email_is_not_modified_or_bound(self):
++        first = User.objects.create_user(
++            'ambiguous-one',
++            email='ambiguous@example.org',
++            is_staff=True,
++            is_superuser=True,
++        )
++        with patch('postgresqleu.oauthlogin.rolesync.User.objects.select_for_update') as users:
++            users.return_value.filter.return_value.__getitem__.return_value = [
++                first,
++                SimpleNamespace(pk=first.pk + 1),
++            ]
++            response = _perform_oauth_login(
++                self._request(),
++                'keycloak',
++                first.email.upper(),
++                'Ambiguous',
++                'User',
++                keycloak_identity=self._identity('ambiguous-subject'),
++            )
++
++        self.assertEqual(response.status_code, 403)
++        first.refresh_from_db()
++        self.assertTrue(first.is_staff)
++        self.assertTrue(first.is_superuser)
++        self.assertFalse(KeycloakIdentityBinding.objects.exists())
++
++    def test_different_subject_cannot_downgrade_email_matched_bound_user(self):
++        user = User.objects.create_user(
++            'already-bound',
++            email='already-bound@example.org',
++            is_staff=True,
++            is_superuser=True,
++        )
++        binding = KeycloakIdentityBinding.objects.create(
++            user=user,
++            issuer=self.issuer,
++            subject='subject-a',
++        )
++
++        response = _perform_oauth_login(
++            self._request(),
++            'keycloak',
++            user.email,
++            user.first_name,
++            user.last_name,
++            keycloak_identity=self._identity('subject-b'),
++        )
++
++        self.assertEqual(response.status_code, 403)
++        user.refresh_from_db()
++        self.assertTrue(user.is_staff)
++        self.assertTrue(user.is_superuser)
++        self.assertEqual(KeycloakIdentityBinding.objects.get(pk=binding.pk).subject, 'subject-a')
++
++    def test_inactive_bound_user_converges_empty_before_accepted_role_is_denied(self):
++        user = User.objects.create_user(
++            'inactive-bound',
++            email='inactive-bound@example.org',
++            is_staff=True,
++            is_superuser=True,
++        )
++        global_group = Group.objects.get(name='News administrators')
++        user.groups.add(global_group)
++        binding = KeycloakIdentityBinding.objects.create(
++            user=user,
++            issuer=self.issuer,
++            subject='inactive-bound-subject',
++        )
++        series = ConferenceSeries.objects.create(name='Inactive bound series')
++        path = '/pgeu/series/{0}/roles/admin'.format(series.pk)
++        sync_keycloak_scoped_roles(binding, {'pgeu-series-admin'}, {path})
++        user.is_active = False
++        user.save(update_fields=['is_active'])
++
++        with patch('postgresqleu.oauthlogin.oauthclient.django_login') as login_mock:
++            response = _perform_oauth_login(
++                self._request(),
++                'keycloak',
++                user.email,
++                user.first_name,
++                user.last_name,
++                keycloak_identity=self._identity(
++                    'inactive-bound-subject',
++                    {'pgeu-user', 'pgeu-series-admin'},
++                    {path},
++                ),
++            )
++
++        self.assertEqual(response.status_code, 403)
++        login_mock.assert_not_called()
++        user.refresh_from_db()
++        self.assertFalse(user.is_active)
++        self.assertFalse(user.is_staff)
++        self.assertFalse(user.is_superuser)
++        self.assertFalse(user.groups.filter(pk=global_group.pk).exists())
++        self.assertFalse(series.administrators.filter(pk=user.pk).exists())
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=binding).exists())
++
++    def test_inactive_unbound_migration_user_converges_global_without_binding(self):
++        user = User.objects.create_user(
++            'inactive-unbound',
++            email='inactive-unbound@example.org',
++            is_active=False,
++            is_staff=True,
++            is_superuser=True,
++        )
++        global_group = Group.objects.get(name='News administrators')
++        user.groups.add(global_group)
++
++        response = _perform_oauth_login(
++            self._request(),
++            'keycloak',
++            user.email,
++            user.first_name,
++            user.last_name,
++            keycloak_identity=self._identity('inactive-unbound-subject', {'pgeu-user'}),
++        )
++
++        self.assertEqual(response.status_code, 403)
++        user.refresh_from_db()
++        self.assertFalse(user.is_active)
++        self.assertFalse(user.is_staff)
++        self.assertFalse(user.is_superuser)
++        self.assertFalse(user.groups.filter(pk=global_group.pk).exists())
++        self.assertFalse(KeycloakIdentityBinding.objects.exists())
++
++    def test_exact_bound_email_conflict_converges_bound_user_only(self):
++        bound = User.objects.create_user(
++            'bound-conflict',
++            email='bound-conflict@example.org',
++            is_staff=True,
++            is_superuser=True,
++        )
++        conflicting = User.objects.create_user('conflicting-email', email='conflicting@example.org')
++        binding = KeycloakIdentityBinding.objects.create(
++            user=bound,
++            issuer=self.issuer,
++            subject='bound-conflict-subject',
++        )
++        series = ConferenceSeries.objects.create(name='Conflict series')
++        path = '/pgeu/series/{0}/roles/admin'.format(series.pk)
++        sync_keycloak_scoped_roles(binding, {'pgeu-series-admin'}, {path})
++
++        response = _perform_oauth_login(
++            self._request(),
++            'keycloak',
++            conflicting.email,
++            conflicting.first_name,
++            conflicting.last_name,
++            keycloak_identity=self._identity('bound-conflict-subject', {'pgeu-user'}),
++        )
++
++        self.assertEqual(response.status_code, 403)
++        bound.refresh_from_db()
++        conflicting.refresh_from_db()
++        self.assertFalse(bound.is_staff)
++        self.assertFalse(bound.is_superuser)
++        self.assertFalse(series.administrators.filter(pk=bound.pk).exists())
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=binding).exists())
++        self.assertFalse(conflicting.is_staff)
++        self.assertTrue(KeycloakIdentityBinding.objects.filter(pk=binding.pk, user=bound).exists())
++
++
++class ScopedKeycloakRoleSyncTests(TestCase):
++    issuer = 'https://auth.example.test/realms/pgeu'
++
++    def setUp(self):
++        self.user = User.objects.create_user('scoped', email='scoped@example.org')
++        self.binding = KeycloakIdentityBinding.objects.create(
++            user=self.user,
++            issuer=self.issuer,
++            subject='scoped-subject',
++        )
++        self.series = ConferenceSeries.objects.create(name='Foss North')
++        self.path = '/pgeu/series/{0}/roles/admin'.format(self.series.pk)
++        self.roles = {'pgeu-series-admin'}
++
++    def _conference(self, urlname, askbadgescan=False):
++        today = timezone.localdate()
++        return Conference.objects.create(
++            series=self.series,
++            urlname=urlname,
++            conferencename='Scoped conference',
++            startdate=today,
++            enddate=today,
++            location='Test venue',
++            contactaddr='contact@example.org',
++            sponsoraddr='sponsors@example.org',
++            notifyaddr='notify@example.org',
++            confurl='https://example.org/{0}'.format(urlname),
++            askbadgescan=askbadgescan,
++        )
++
++    def _registration(self, conference, user, suffix):
++        now = timezone.now()
++        return ConferenceRegistration.objects.create(
++            conference=conference,
++            attendee=user,
++            registrator=user,
++            firstname='Scoped',
++            lastname='Attendee',
++            email='{0}@example.org'.format(suffix),
++            created=now,
++            payconfirmedat=now,
++            regtoken=('reg-{0}-{1}'.format(suffix, 'r' * 64))[:64],
++            idtoken='id-{0}'.format(suffix),
++            publictoken='public-{0}'.format(suffix),
++        )
++
++    def test_keycloak_owned_series_grant_is_idempotent_and_revoked(self):
++        sync_keycloak_scoped_roles(self.binding, self.roles, {self.path})
++        self.assertTrue(self.series.administrators.filter(pk=self.user.pk).exists())
++        grant = KeycloakRoleGrant.objects.get(binding=self.binding)
++        self.assertEqual((grant.client_role, grant.group_path), ('pgeu-series-admin', self.path))
++        self.assertEqual((grant.grant_type, grant.target), ('series-admin', str(self.series.pk)))
++        self.assertEqual(grant.relation_target, str(self.user.pk))
++        self.assertEqual(grant.relation_record, '')
++        self.assertTrue(grant.owned)
++        self.assertIsNotNone(grant.created_at)
++        self.assertIsNotNone(grant.last_seen_at)
++
++        sync_keycloak_scoped_roles(self.binding, self.roles, {self.path})
++        self.assertEqual(KeycloakRoleGrant.objects.filter(binding=self.binding).count(), 1)
++
++        sync_keycloak_scoped_roles(self.binding, set(), set())
++        self.assertFalse(self.series.administrators.filter(pk=self.user.pk).exists())
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=self.binding).exists())
++
++    def test_preexisting_local_series_grant_is_unowned_and_survives_revoke(self):
++        self.series.administrators.add(self.user)
++        sync_keycloak_scoped_roles(self.binding, self.roles, {self.path})
++        self.assertFalse(KeycloakRoleGrant.objects.get(binding=self.binding).owned)
++
++        sync_keycloak_scoped_roles(self.binding, set(), set())
++        self.assertTrue(self.series.administrators.filter(pk=self.user.pk).exists())
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=self.binding).exists())
++
++    def test_detached_registration_relations_are_revoked_by_stored_identity(self):
++        conference = self._conference('scoped_registration')
++        registration = self._registration(conference, self.user, 'scoped-registration')
++        page = Wikipage.objects.create(
++            conference=conference,
++            url='planning',
++            title='Planning',
++            author=registration,
++            contents='Initial contents',
++        )
++        volunteer_path = '/pgeu/conferences/{0}/roles/volunteer'.format(conference.urlname)
++        wiki_path = '/pgeu/conferences/{0}/wiki/{1}/roles/editor'.format(conference.urlname, page.url)
++
++        sync_keycloak_scoped_roles(
++            self.binding,
++            {'pgeu-conference-volunteer', 'pgeu-wiki-editor'},
++            {volunteer_path, wiki_path},
++        )
++        self.assertTrue(conference.volunteers.filter(pk=registration.pk).exists())
++        self.assertTrue(page.editor_attendee.filter(pk=registration.pk).exists())
++        self.assertEqual(
++            set(KeycloakRoleGrant.objects.filter(binding=self.binding).values_list('grant_type', 'relation_target')),
++            {
++                ('conference-volunteer', str(registration.pk)),
++                ('wiki-editor', str(registration.pk)),
++            },
++        )
++
++        registration.attendee = None
++        registration.save(update_fields=['attendee'])
++        sync_keycloak_scoped_roles(self.binding, set(), set())
++
++        self.assertFalse(conference.volunteers.filter(pk=registration.pk).exists())
++        self.assertFalse(page.editor_attendee.filter(pk=registration.pk).exists())
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=self.binding).exists())
++
++    def test_detached_scanner_token_is_revoked_and_scan_history_is_retained(self):
++        conference = self._conference('scoped_scanner', askbadgescan=True)
++        scanner_registration = self._registration(conference, self.user, 'scanner')
++        attendee_user = User.objects.create_user('scanned-attendee', email='scanned-attendee@example.org')
++        attendee_registration = self._registration(conference, attendee_user, 'scanned-attendee')
++        level = SponsorshipLevel.objects.create(
++            conference=conference,
++            levelname='Gold',
++            urlname='gold',
++            levelcost=100,
++            paymentdueby=timezone.localdate(),
++        )
++        sponsor = Sponsor.objects.create(
++            conference=conference,
++            level=level,
++            name='Test sponsor',
++            displayname='Test sponsor',
++            confirmed=True,
++            signupat=timezone.now(),
++        )
++        benefit = SponsorshipBenefit.objects.create(
++            level=level,
++            benefitname='Badge scanning',
++            benefit_class=get_benefit_id('badgescanning.BadgeScanning'),
++            class_parameters={},
++        )
++        SponsorClaimedBenefit.objects.create(
++            sponsor=sponsor,
++            benefit=benefit,
++            claimedat=timezone.now(),
++            claimedby=self.user,
++            claimjson={},
++            confirmed=True,
++        )
++        path = '/pgeu/sponsors/{0}/roles/badge-scanner'.format(sponsor.pk)
++        sync_keycloak_scoped_roles(self.binding, {'pgeu-sponsor-badge-scanner'}, {path})
++        scanner = SponsorScanner.objects.get(sponsor=sponsor, scanner=scanner_registration)
++        grant = KeycloakRoleGrant.objects.get(binding=self.binding, group_path=path)
++        self.assertEqual(grant.relation_target, str(scanner_registration.pk))
++        self.assertEqual(grant.relation_record, str(scanner.pk))
++        self.assertTrue(grant.owned)
++        scan = ScannedAttendee.objects.create(
++            sponsor=sponsor,
++            scannedby=scanner_registration,
++            attendee=attendee_registration,
++        )
++
++        scanner_registration.attendee = None
++        scanner_registration.save(update_fields=['attendee'])
++        sync_keycloak_scoped_roles(self.binding, set(), set())
++
++        self.assertFalse(SponsorScanner.objects.filter(pk=scanner.pk).exists())
++        self.assertTrue(
++            ScannedAttendee.objects.filter(pk=scan.pk, scannedby_id=scanner_registration.pk).exists()
++        )
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=self.binding).exists())
++
++    def test_replacement_scanner_row_is_not_deleted_by_old_owned_ledger(self):
++        conference = self._conference('replaced_scanner', askbadgescan=True)
++        registration = self._registration(conference, self.user, 'replacement-scanner')
++        level = SponsorshipLevel.objects.create(
++            conference=conference,
++            levelname='Gold',
++            urlname='gold',
++            levelcost=100,
++            paymentdueby=timezone.localdate(),
++        )
++        sponsor = Sponsor.objects.create(
++            conference=conference,
++            level=level,
++            name='Replacement sponsor',
++            displayname='Replacement sponsor',
++            confirmed=True,
++            signupat=timezone.now(),
++        )
++        original = SponsorScanner.objects.create(
++            sponsor=sponsor,
++            scanner=registration,
++            token='original-keycloak-scanner-token',
++        )
++        path = '/pgeu/sponsors/{0}/roles/badge-scanner'.format(sponsor.pk)
++        KeycloakRoleGrant.objects.create(
++            binding=self.binding,
++            client_role='pgeu-sponsor-badge-scanner',
++            group_path=path,
++            grant_type='sponsor-badge-scanner',
++            target=str(sponsor.pk),
++            relation_target=str(registration.pk),
++            relation_record=str(original.pk),
++            owned=True,
++        )
++        original.delete()
++        replacement = SponsorScanner.objects.create(
++            sponsor=sponsor,
++            scanner=registration,
++            token='locally-replaced-scanner-token',
++        )
++
++        desired = {
++            ('pgeu-sponsor-badge-scanner', path): (
++                'sponsor-badge-scanner',
++                str(sponsor.pk),
++                str(registration.pk),
++                str(replacement.pk),
++            ),
++        }
++        with patch('postgresqleu.oauthlogin.rolesync._desired_keycloak_grants', return_value=desired):
++            sync_keycloak_scoped_roles(
++                self.binding,
++                {'pgeu-sponsor-badge-scanner'},
++                {path},
++            )
++
++        adopted = KeycloakRoleGrant.objects.get(binding=self.binding, group_path=path)
++        self.assertEqual(adopted.relation_record, str(replacement.pk))
++        self.assertFalse(adopted.owned)
++
++        sync_keycloak_scoped_roles(self.binding, set(), set())
++
++        self.assertTrue(SponsorScanner.objects.filter(pk=replacement.pk).exists())
++        self.assertFalse(KeycloakRoleGrant.objects.filter(binding=self.binding).exists())
+diff --git a/postgresqleu/util/migrations/0009_keycloakrolegrant.py b/postgresqleu/util/migrations/0009_keycloakrolegrant.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..a317796033dcb9d18b221d747ed16617897e4581
+--- /dev/null
++++ b/postgresqleu/util/migrations/0009_keycloakrolegrant.py
+@@ -0,0 +1,49 @@
++# Generated by Django 5.0.8 on 2026-07-15
++
++from django.conf import settings
++from django.db import migrations, models
++import django.db.models.deletion
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
++        ('util', '0008_storage_metadata'),
++    ]
++
++    operations = [
++        migrations.CreateModel(
++            name='KeycloakIdentityBinding',
++            fields=[
++                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
++                ('issuer', models.CharField(max_length=255)),
++                ('subject', models.CharField(max_length=255)),
++                ('created_at', models.DateTimeField(auto_now_add=True)),
++                ('last_seen_at', models.DateTimeField(auto_now=True)),
++                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='keycloak_identities', to=settings.AUTH_USER_MODEL)),
++            ],
++            options={
++                'unique_together': {('issuer', 'subject'), ('issuer', 'user')},
++            },
++        ),
++        migrations.CreateModel(
++            name='KeycloakRoleGrant',
++            fields=[
++                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
++                ('client_role', models.CharField(max_length=64)),
++                ('group_path', models.CharField(max_length=500)),
++                ('grant_type', models.CharField(max_length=64)),
++                ('target', models.CharField(max_length=255)),
++                ('relation_target', models.CharField(max_length=255)),
++                ('relation_record', models.CharField(blank=True, default='', max_length=255)),
++                ('owned', models.BooleanField()),
++                ('created_at', models.DateTimeField(auto_now_add=True)),
++                ('last_seen_at', models.DateTimeField(auto_now=True)),
++                ('binding', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='role_grants', to='util.keycloakidentitybinding')),
++            ],
++            options={
++                'unique_together': {('binding', 'client_role', 'group_path')},
++            },
++        ),
++    ]
+diff --git a/postgresqleu/util/migrations/expected_foreign_constraints.csv b/postgresqleu/util/migrations/expected_foreign_constraints.csv
+index d3928eaa67e200ee02ba403617e267daafedf2d5..224838c6936c9674de1860eb5e2e564c5b8422a3 100644
+--- a/postgresqleu/util/migrations/expected_foreign_constraints.csv
++++ b/postgresqleu/util/migrations/expected_foreign_constraints.csv
+@@ -300,3 +300,5 @@ trustlypayment_trustlynotification	trustlypayment_trustlyrawnotification	rawnoti
+ trustlypayment_trustlyrawnotification	invoices_invoicepaymentmethod	paymentmethod_id	id	trustlypayment_trust_paymentmethod_id_c37aab93_fk_invoices_
+ trustlypayment_trustlytransaction	invoices_invoicepaymentmethod	paymentmethod_id	id	trustlypayment_trust_paymentmethod_id_8c178ccb_fk_invoices_
+ trustlypayment_trustlywithdrawal	invoices_invoicepaymentmethod	paymentmethod_id	id	trustlypayment_trust_paymentmethod_id_a2b46557_fk_invoices_
++util_keycloakidentitybinding	auth_user	user_id	id	util_keycloakidentitybinding_user_id_f0d1acb8_fk_auth_user_id
++util_keycloakrolegrant	util_keycloakidentitybinding	binding_id	id	util_keycloakrolegra_binding_id_7542bb48_fk_util_keyc
+diff --git a/postgresqleu/util/migrations/expected_unique_constraints.csv b/postgresqleu/util/migrations/expected_unique_constraints.csv
+index 6c819edb75594afb7d15c71fa18ea94902c22c23..e1913325ecbd6f4a88f17bf8c99df40ba6823e6d 100644
+--- a/postgresqleu/util/migrations/expected_unique_constraints.csv
++++ b/postgresqleu/util/migrations/expected_unique_constraints.csv
+@@ -120,5 +120,8 @@ transferwise_transferwiserefund	transferwise_transferwiserefund_uuid_key	{uuid}
+ transferwise_transferwisetransaction	transferwise_transferwis_twreference_paymentmetho_3d951213_uniq	{twreference,paymentmethod_id}
+ trustlypayment_trustlynotification	trustlypayment_trustlynotification_receivedat_key	{receivedat}
+ trustlypayment_trustlyrawnotification	trustlypayment_trustlyrawnotification_dat_key	{dat}
++util_keycloakidentitybinding	util_keycloakidentitybinding_issuer_subject_e1b30fd6_uniq	{issuer,subject}
++util_keycloakidentitybinding	util_keycloakidentitybinding_issuer_user_id_e0ff1763_uniq	{issuer,user_id}
++util_keycloakrolegrant	util_keycloakrolegrant_binding_id_client_role_g_78273c51_uniq	{binding_id,client_role,group_path}
+ util_oauthapplication	util_oauthapplication_baseurl_key	{baseurl}
+ util_storage	util_storage_key_storageid_cc2b7df4_uniq	{key,storageid}
+diff --git a/postgresqleu/util/models.py b/postgresqleu/util/models.py
+index 64d6c4235d78a5b4ca9320f015c6e479b1894f9f..d0458b69e79eaaf5a166a28710ed879eb04020d2 100644
+--- a/postgresqleu/util/models.py
++++ b/postgresqleu/util/models.py
+@@ -1,4 +1,5 @@
+ # Some very simple models used by utilities
++from django.conf import settings
+ from django.db import models
+ 
+ 
+@@ -26,3 +27,35 @@ class OAuthApplication(models.Model):
+ 
+     class Meta:
+         verbose_name = 'OAuth Application'
++
++
++class KeycloakIdentityBinding(models.Model):
++    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=False, blank=False, on_delete=models.CASCADE, related_name='keycloak_identities')
++    issuer = models.CharField(max_length=255, null=False, blank=False)
++    subject = models.CharField(max_length=255, null=False, blank=False)
++    created_at = models.DateTimeField(auto_now_add=True, null=False, blank=False)
++    last_seen_at = models.DateTimeField(auto_now=True, null=False, blank=False)
++
++    class Meta:
++        unique_together = (
++            ('issuer', 'subject'),
++            ('issuer', 'user'),
++        )
++
++
++class KeycloakRoleGrant(models.Model):
++    binding = models.ForeignKey(KeycloakIdentityBinding, null=False, blank=False, on_delete=models.CASCADE, related_name='role_grants')
++    client_role = models.CharField(max_length=64, null=False, blank=False)
++    group_path = models.CharField(max_length=500, null=False, blank=False)
++    grant_type = models.CharField(max_length=64, null=False, blank=False)
++    target = models.CharField(max_length=255, null=False, blank=False)
++    relation_target = models.CharField(max_length=255, null=False, blank=False)
++    relation_record = models.CharField(max_length=255, null=False, blank=True, default='')
++    owned = models.BooleanField(null=False, blank=False)
++    created_at = models.DateTimeField(auto_now_add=True, null=False, blank=False)
++    last_seen_at = models.DateTimeField(auto_now=True, null=False, blank=False)
++
++    class Meta:
++        unique_together = (
++            ('binding', 'client_role', 'group_path'),
++        )

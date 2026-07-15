@@ -1,0 +1,128 @@
+diff --git a/postgresqleu/oauthlogin/oauthclient.py b/postgresqleu/oauthlogin/oauthclient.py
+index c20c23d9..8b472533 100644
+--- a/postgresqleu/oauthlogin/oauthclient.py
++++ b/postgresqleu/oauthlogin/oauthclient.py
+@@ -1,8 +1,10 @@
+ from django.conf import settings
+ from django.contrib.auth import login as django_login
+ from django.http import HttpResponse, HttpResponseRedirect
+-from django.contrib.auth.models import User
++from django.contrib.auth.models import Group, User
+ 
++import base64
++import json
+ import os
+ import sys
+ 
+@@ -17,6 +19,67 @@ def get_client_ip(request):
+ class OAuthException(Exception):
+     pass
+ 
++KEYCLOAK_SUPERADMIN_ROLE = 'pgeu-superadmin'
++KEYCLOAK_GROUP_ROLES = {
++    'pgeu-invoice-manager': 'Invoice managers',
++    'pgeu-news-admin': 'News administrators',
++    'pgeu-membership-admin': 'Membership administrators',
++    'pgeu-election-admin': 'Election administrators',
++    'pgeu-accounting-manager': 'Accounting managers',
++}
++KEYCLOAK_ACCESS_ROLES = set(['pgeu-user', KEYCLOAK_SUPERADMIN_ROLE]) | set(KEYCLOAK_GROUP_ROLES.keys())
++KEYCLOAK_OWNED_GROUPS = set(KEYCLOAK_GROUP_ROLES.values())
++
++
++def _json_list(value):
++    if isinstance(value, list):
++        return [str(v) for v in value]
++    if isinstance(value, str) and value:
++        return [value]
++    return []
++
++
++def _decode_jwt_payload(token):
++    try:
++        payload = token.split('.')[1]
++        payload += '=' * (-len(payload) % 4)
++        decoded = base64.urlsafe_b64decode(payload.encode('ascii')).decode('utf-8')
++        return json.loads(decoded)
++    except Exception:
++        log.warning("Unable to decode Keycloak access token payload for role sync")
++        return {}
++
++
++def _keycloak_roles_from_token(token, client_id):
++    if not token:
++        return set()
++
++    payload = _decode_jwt_payload(token)
++    roles = set(_json_list(payload.get('pgeu_roles')))
++    roles.update(_json_list(payload.get('resource_access', {}).get(client_id, {}).get('roles')))
++    return roles
++
++
++def _sync_keycloak_roles(user, roles):
++    desired_staff = KEYCLOAK_SUPERADMIN_ROLE in roles
++    user.is_staff = desired_staff
++    user.is_superuser = desired_staff
++    user.save(update_fields=['is_staff', 'is_superuser'])
++
++    desired_groups = set(
++        group_name
++        for role_name, group_name in KEYCLOAK_GROUP_ROLES.items()
++        if role_name in roles
++    )
++    current_owned_groups = Group.objects.filter(name__in=KEYCLOAK_OWNED_GROUPS)
++    for group in current_owned_groups:
++        if group.name not in desired_groups:
++            user.groups.remove(group)
++
++    for group_name in sorted(desired_groups):
++        group, _created = Group.objects.get_or_create(name=group_name)
++        user.groups.add(group)
++
+ 
+ #
+ # Disable scope validation in oauthlib, as it throws an exception we cannot
+@@ -26,7 +89,7 @@ def configure():
+     os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
+ 
+ 
+-def _perform_oauth_login(request, provider, email, firstname, lastname):
++def _perform_oauth_login(request, provider, email, firstname, lastname, keycloak_roles=None):
+     try:
+         user = User.objects.get(email=email)
+         log.info("Oauth signin of {0} using {1} from {2}.".format(email, provider, get_client_ip(request)))
+@@ -39,6 +102,9 @@ def _perform_oauth_login(request, provider, email, firstname, lastname):
+                     last_name=lastname)
+         user.save()
+ 
++    if provider == 'keycloak' and keycloak_roles is not None:
++        _sync_keycloak_roles(user, keycloak_roles)
++
+     user.backend = settings.AUTHENTICATION_BACKENDS[0]
+     django_login(request, user)
+     n = request.session.pop('login_next')
+@@ -71,10 +137,15 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
+         token = oa.fetch_token(tokenurl,
+                                client_secret=client_secret,
+                                code=request.GET['code'])
++        keycloak_roles = None
+         if provider == 'keycloak':
+             id_token = token.get('id_token', '')
+             if id_token:
+                 request.session['oauth_keycloak_id_token'] = id_token
++            keycloak_roles = _keycloak_roles_from_token(token.get('access_token', ''), client_id)
++            if not KEYCLOAK_ACCESS_ROLES.intersection(keycloak_roles):
++                log.warning("Keycloak login rejected for missing PGEU role from {0}".format(get_client_ip(request)))
++                return HttpResponse('Your account is not enabled for PGEU access.', status=403)
+         if token.scope_changed:
+             log.warning("Oauth scope changed for {0} login from '{1}' to '{2}'".format(provider, token.old_scope, token.scope))
+ 
+@@ -85,7 +156,7 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
+             log.warning("Oauth signing using {0} was missing data: {1}".format(provider, e))
+             return HttpResponse('OAuth login was missing critical data. To log in, you need to allow access to email, first name and last name!')
+ 
+-        return _perform_oauth_login(request, provider, email, firstname, lastname)
++        return _perform_oauth_login(request, provider, email, firstname, lastname, keycloak_roles=keycloak_roles)
+     else:
+         log.info("Initiating {0} oauth2 step from {1}".format(provider, get_client_ip(request)))
+         # First step is redirect to provider

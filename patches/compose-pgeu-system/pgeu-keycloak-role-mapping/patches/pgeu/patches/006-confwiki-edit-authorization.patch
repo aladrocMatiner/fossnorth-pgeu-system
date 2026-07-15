@@ -1,0 +1,123 @@
+diff --git a/postgresqleu/confwiki/tests.py b/postgresqleu/confwiki/tests.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..af6123e96fa0bd06ddcfd488844785e8b6136e08
+--- /dev/null
++++ b/postgresqleu/confwiki/tests.py
+@@ -0,0 +1,104 @@
++from types import SimpleNamespace
++from unittest.mock import patch
++
++from django.core.exceptions import PermissionDenied
++from django.test import SimpleTestCase
++
++from postgresqleu.confwiki.views import _check_wiki_permissions, wikipage_edit
++
++
++class _Relation:
++    def __init__(self, allowed_ids=()):
++        self.allowed_ids = set(allowed_ids)
++
++    def filter(self, **kwargs):
++        return SimpleNamespace(exists=lambda: kwargs.get('id') in self.allowed_ids)
++
++
++def _undecorated_edit_view():
++    view = wikipage_edit
++    while hasattr(view, '__wrapped__'):
++        view = view.__wrapped__
++    return view
++
++
++class WikiEditAuthorizationTests(SimpleTestCase):
++    def setUp(self):
++        self.request = SimpleNamespace(user=object(), method='GET', POST={})
++        self.registration = SimpleNamespace(id=3, regtype=SimpleNamespace(id=4))
++        self.page = SimpleNamespace(
++            conference=object(),
++            contents='original contents',
++            publicedit=False,
++            publicview=True,
++            editor_attendee=_Relation(),
++            editor_regtype=_Relation(),
++            viewer_attendee=_Relation(),
++            viewer_regtype=_Relation(),
++        )
++
++    def _view_context(self):
++        return (
++            patch('postgresqleu.confwiki.views.get_conference_or_404', return_value=self.page.conference),
++            patch('postgresqleu.confwiki.views.get_object_or_404', return_value=self.page),
++            patch(
++                'postgresqleu.confwiki.views.ConferenceRegistration.objects.get',
++                return_value=self.registration,
++            ),
++        )
++
++    def test_read_only_attendee_cannot_open_edit_get(self):
++        conference_patch, page_patch, registration_patch = self._view_context()
++        with conference_patch, page_patch, registration_patch:
++            with patch('postgresqleu.confwiki.views.WikipageEditForm') as form:
++                with self.assertRaises(PermissionDenied):
++                    _undecorated_edit_view()(self.request, 'fossnorth', 'planning')
++        form.assert_not_called()
++        self.assertEqual(self.page.contents, 'original contents')
++
++    def test_direct_post_by_read_only_attendee_cannot_publish_or_create_history(self):
++        self.request.method = 'POST'
++        self.request.POST = {
++            'contents': 'unauthorized change',
++            'submit': 'Commit changes',
++        }
++        conference_patch, page_patch, registration_patch = self._view_context()
++        with conference_patch, page_patch, registration_patch:
++            with patch('postgresqleu.confwiki.views.WikipageEditForm') as form:
++                with patch('postgresqleu.confwiki.views.WikipageHistory') as history:
++                    with self.assertRaises(PermissionDenied):
++                        _undecorated_edit_view()(self.request, 'fossnorth', 'planning')
++        form.assert_not_called()
++        history.assert_not_called()
++        self.assertEqual(self.page.contents, 'original contents')
++
++    def test_explicit_editor_can_open_edit_get(self):
++        self.page.editor_attendee = _Relation({self.registration.id})
++        conference_patch, page_patch, registration_patch = self._view_context()
++        response = object()
++        with conference_patch, page_patch, registration_patch:
++            with patch('postgresqleu.confwiki.views.WikipageEditForm') as form:
++                with patch('postgresqleu.confwiki.views.render_conference_response', return_value=response) as render:
++                    self.assertIs(
++                        _undecorated_edit_view()(self.request, 'fossnorth', 'planning'),
++                        response,
++                    )
++        form.assert_called_once_with(instance=self.page)
++        render.assert_called_once()
++
++    def test_public_editor_and_editor_regtype_have_write_permission(self):
++        with patch(
++                'postgresqleu.confwiki.views.ConferenceRegistration.objects.get',
++                return_value=self.registration):
++            self.page.publicedit = True
++            self.assertIs(
++                _check_wiki_permissions(self.request, self.page, readwrite=True),
++                self.registration,
++            )
++
++            self.page.publicedit = False
++            self.page.editor_regtype = _Relation({self.registration.regtype.id})
++            self.assertIs(
++                _check_wiki_permissions(self.request, self.page, readwrite=True),
++                self.registration,
++            )
+diff --git a/postgresqleu/confwiki/views.py b/postgresqleu/confwiki/views.py
+index 4cbdb442d377887ec041f7d90ee52271ffcd3762..f825705237bab72f10483e3e84608231301da1a7 100644
+--- a/postgresqleu/confwiki/views.py
++++ b/postgresqleu/confwiki/views.py
+@@ -148,7 +148,7 @@ def wikipage_history(request, confurl, wikiurl):
+ def wikipage_edit(request, confurl, wikiurl):
+     conference = get_conference_or_404(confurl)
+     page = get_object_or_404(Wikipage, conference=conference, url=wikiurl)
+-    reg = _check_wiki_permissions(request, page)
++    reg = _check_wiki_permissions(request, page, readwrite=True)
+ 
+     baseform = True
+     preview = ''

@@ -1,0 +1,4 @@
+# Preserve serialized source artifacts byte-for-byte without treating their
+# patch syntax or source-owned terminal blank line as publication whitespace.
+patches/pgeu/patches/*.patch -whitespace
+services/keycloak/scoped-groups.foss-north-production.json -whitespace

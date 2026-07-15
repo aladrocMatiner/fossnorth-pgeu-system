@@ -1,0 +1,222 @@
+schema_version: 1
+upstream:
+  repository: https://github.com/pgeu/pgeu-system.git
+  default_branch: master
+  pinned_ref: b0f05c327012e41a34ad9b25d64b7918839461c4
+  checked_date: 2026-06-30
+  checked_with: git ls-remote https://github.com/pgeu/pgeu-system.git HEAD
+
+policy:
+  baseline_floats: false
+  apply_entrypoint: scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+  patch_directory: patches/pgeu/patches
+  helper_directory: patches/pgeu/scripts
+  patch_entry_template: patches/pgeu/patch-entry-template.md
+  patch_note_template: patches/pgeu/PATCH_TEMPLATE.md
+  apply_order: Manifest patch list order.
+  idempotency: Patch files are skipped when already applied; helper scripts must
+    be idempotent before they are listed.
+  upgrade_requires_openspec_change: true
+
+patches:
+  - id: keycloak-oidc-dependencies
+    apply_order: 10
+    purpose: Enable PGEU to use the deployment-owned confidential Keycloak OIDC client, preserve the ID token needed for RP-initiated logout, and keep container dependency installation reproducible.
+    upstream_files_changed:
+      - tools/devsetup/dev_requirements.txt
+      - postgresqleu/oauthlogin/oauthclient.py
+    affected_paths:
+      - tools/devsetup/dev_requirements.txt
+      - postgresqleu/oauthlogin/oauthclient.py
+    patch_file: patches/pgeu/patches/001-keycloak-oidc-dependencies.patch
+    helper_script: null
+    apply_command: scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+    validation:
+      - services/pgeu/bin/preflight.sh --patched
+      - git -C "${PGEU_SOURCE_DIR}" diff --stat
+      - git -C "${PGEU_SOURCE_DIR}" diff --check
+    readiness: split-required
+    rationale: >
+      Combines three concerns that should not be submitted upstream together:
+      a small Keycloak/OIDC OAuth2 provider, Keycloak ID token capture needed
+      by RP-initiated logout, and container dependency pin updates. The provider
+      shape is a pull-request candidate if kept deployment-neutral; ID token
+      capture belongs with a generic OIDC logout hook; dependency pins should
+      remain local unless upstream independently needs those package versions.
+    removal_criteria: Remove when upstream PGEU provides an equivalent Keycloak/OIDC provider, RP-initiated logout token handling, and compatible dependency pins.
+    upgrade_notes: Recheck oauthclient.py provider structure and dev_requirements.txt dependency constraints when moving the baseline.
+
+  - id: oauth-logout-get-compat
+    apply_order: 20
+    purpose: Keep PGEU's existing logout navigation working with Django 5 and terminate the Keycloak SSO session before returning to PGEU.
+    upstream_files_changed:
+      - postgresqleu/oauthlogin/views.py
+    affected_paths:
+      - postgresqleu/oauthlogin/views.py
+    patch_file: patches/pgeu/patches/002-oauth-logout-get-compat.patch
+    helper_script: null
+    apply_command: scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+    validation:
+      - services/pgeu/bin/preflight.sh --patched
+      - curl -I https://foss-north.org/accounts/logout
+      - git -C "${PGEU_SOURCE_DIR}" diff --stat
+      - git -C "${PGEU_SOURCE_DIR}" diff --check
+    readiness: split-required
+    rationale: >
+      Combines generic Django 5 logout compatibility with Keycloak/OIDC
+      RP-initiated logout. The Django 5 compatibility piece is a pull-request
+      candidate, but upstream may prefer changing templates to POST logout. The
+      Keycloak end-session behavior should be implemented through a
+      provider-specific or generic OIDC logout hook rather than hard-coding
+      Keycloak in the view.
+    removal_criteria: Remove when upstream PGEU changes logout navigation to POST forms or provides an equivalent Django 5-compatible OAuth/OIDC logout view.
+    upgrade_notes: Recheck oauthlogin/views.py and template/nav_account.html when moving the baseline.
+
+  - id: keycloak-role-sync
+    apply_order: 30
+    purpose: Require an accepted PGEU Keycloak role during login and synchronize Keycloak-owned authorization intent to Django staff flags and deployment-owned groups.
+    upstream_files_changed:
+      - postgresqleu/oauthlogin/oauthclient.py
+    affected_paths:
+      - postgresqleu/oauthlogin/oauthclient.py
+    patch_file: patches/pgeu/patches/003-keycloak-role-sync.patch
+    helper_script: null
+    apply_command: scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+    validation:
+      - services/pgeu/bin/preflight.sh --patched
+      - scripts/smoke-keycloak-role-sync.sh --target-ip 127.0.0.1
+      - git -C "${PGEU_SOURCE_DIR}" diff --stat
+      - git -C "${PGEU_SOURCE_DIR}" diff --check
+    readiness: plugin-candidate
+    rationale: Keeps PGEU-local object permissions untouched while using Keycloak as the source of truth for coarse login, superadmin, and manager group intent. The patch reads the role claim already returned by the OAuth token exchange, rejects identities without a PGEU role, grants Django superuser/staff only for `pgeu-superadmin`, maps manager roles to named groups, and removes only those Keycloak-owned groups when roles disappear on a later login.
+    removal_criteria: Remove when PGEU exposes a supported OIDC role-mapping plugin, hook, or upstream authorization integration that can enforce the same role inventory and downgrade behavior.
+    upgrade_notes: Recheck oauthclient.py provider flow, Django auth/group APIs, and token/claim handling when moving the baseline. The patch deliberately avoids changing object-level PGEU permissions.
+
+  - id: keycloak-verified-email
+    apply_order: 40
+    purpose: Preserve the live account-linking hardening by requiring Keycloak userinfo to contain a non-empty, explicitly verified email address.
+    upstream_files_changed:
+      - postgresqleu/oauthlogin/oauthclient.py
+    affected_paths:
+      - postgresqleu/oauthlogin/oauthclient.py
+    patch_file: patches/pgeu/patches/004-keycloak-verified-email.patch
+    helper_script: null
+    apply_command: scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+    validation:
+      - services/pgeu/bin/preflight.sh --patched
+      - python manage.py test postgresqleu.oauthlogin.tests
+      - git -C "${PGEU_SOURCE_DIR}" diff --stat
+      - git -C "${PGEU_SOURCE_DIR}" diff --check
+    readiness: pull-request-candidate
+    rationale: Keeps verified-email enforcement in application code as defense in depth even when the Keycloak realm also requires verification. The patch is deliberately separate so a clean staging checkout applies the live hardening and an already-hardened live checkout is detected as already applied.
+    removal_criteria: Remove only when upstream PGEU has equivalent provider-neutral verified-email enforcement for OIDC account linking.
+    upgrade_notes: Recheck the Keycloak userinfo mapping and OAuthException handling when moving the baseline. Preserve the strict `email_verified is True` check.
+
+  - id: keycloak-scoped-role-sync
+    apply_order: 50
+    purpose: Synchronize exact Keycloak group paths and matching scoped client roles into PGEU object relationships without revoking pre-existing local grants.
+    upstream_files_changed:
+      - postgresqleu/oauthlogin/oauthclient.py
+      - postgresqleu/oauthlogin/rolesync.py
+      - postgresqleu/oauthlogin/tests.py
+      - postgresqleu/util/models.py
+      - postgresqleu/util/migrations/0009_keycloakrolegrant.py
+      - postgresqleu/util/migrations/expected_unique_constraints.csv
+      - postgresqleu/util/migrations/expected_foreign_constraints.csv
+    affected_paths:
+      - postgresqleu/oauthlogin/oauthclient.py
+      - postgresqleu/oauthlogin/rolesync.py
+      - postgresqleu/oauthlogin/tests.py
+      - postgresqleu/util/models.py
+      - postgresqleu/util/migrations/0009_keycloakrolegrant.py
+      - postgresqleu/util/migrations/expected_unique_constraints.csv
+      - postgresqleu/util/migrations/expected_foreign_constraints.csv
+    patch_file: patches/pgeu/patches/005-keycloak-scoped-role-sync.patch
+    helper_script: null
+    apply_command: scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+    validation:
+      - services/pgeu/bin/preflight.sh --patched
+      - python manage.py test postgresqleu.oauthlogin.tests
+      - python manage.py djangoconstraints_apply
+      - scripts/smoke-keycloak-role-sync.sh --target-ip 127.0.0.1
+      - PGEU_SCOPED_SMOKE_CONFIRM=disposable-staging scripts/smoke-keycloak-scoped-authorization.sh --target-ip 127.0.0.1
+      - git -C "${PGEU_SOURCE_DIR}" diff --stat
+      - git -C "${PGEU_SOURCE_DIR}" diff --check
+    readiness: plugin-candidate
+    rationale: Uses authorization claims only from the authenticated Keycloak userinfo response, binds the verified issuer and subject unambiguously to one active Django user, and requires the exact deployment-owned `pgeu_groups` path plus its matching scoped client role before granting a relationship. Scoped provenance records retain client role, group path, resource target, exact user/registration/member relationship target, exact concrete scanner row when applicable, ownership, and timestamps. Role removal deletes only scoped relationships created by Keycloak (`owned=true`), remains effective after a registration is detached from its user, and preserves both relationships that predated synchronization (`owned=false`) and locally replaced scanner rows. A verified roleless, inactive, or identity-conflicting callback uses a fresh guarded transaction to converge the exact subject binding to empty global and scoped intent before returning 403; during the pre-binding migration window it also removes global Keycloak intent from one case-insensitive, unambiguous, genuinely unbound existing email match without creating a user or binding. Global flags and Django manager groups retain the authoritative convergence and revocation behavior introduced by patch 003 and remain outside the scoped ledger. Registration, membership, sponsorship, wiki, and badge-scanner prerequisites fail closed without creating local business objects.
+    removal_criteria: Remove when PGEU exposes a supported OIDC authorization plugin that provides authenticated userinfo claim mapping, issuer-subject identity binding, exact scoped claim mapping, persistent grant provenance, prerequisite enforcement, and safe revocation.
+    upgrade_notes: Recheck all target model relations, exact relationship identities, the util migration and expected-constraint inventories, identity-binding uniqueness, the exact group-path grammar, badge-scanner benefit and scanner-row rules, and Keycloak userinfo claim handling. Run migrations and the constraint audit before accepting a Keycloak login with this patch.
+
+  - id: confwiki-edit-authorization
+    apply_order: 60
+    purpose: Require wiki write permission when entering the attendee wiki edit view instead of accepting read-only access.
+    upstream_files_changed:
+      - postgresqleu/confwiki/views.py
+      - postgresqleu/confwiki/tests.py
+    affected_paths:
+      - postgresqleu/confwiki/views.py
+      - postgresqleu/confwiki/tests.py
+    patch_file: patches/pgeu/patches/006-confwiki-edit-authorization.patch
+    helper_script: null
+    apply_command: scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+    validation:
+      - services/pgeu/bin/preflight.sh --patched
+      - python manage.py test postgresqleu.confwiki.tests
+      - git -C "${PGEU_SOURCE_DIR}" diff --stat
+      - git -C "${PGEU_SOURCE_DIR}" diff --check
+    readiness: pull-request-candidate
+    rationale: Fixes a general authorization bug where the edit view called the existing permission helper in read mode, allowing a read-only attendee to publish through the direct edit URL.
+    removal_criteria: Remove when upstream PGEU requires write permission in the wiki edit view and carries an equivalent regression test.
+    upgrade_notes: Recheck the attendee wiki edit view and `_check_wiki_permissions` signature when moving the baseline.
+
+patch_entry_required_fields:
+  - id
+  - apply_order
+  - purpose
+  - upstream_files_changed
+  - affected_paths
+  - patch_file
+  - helper_script
+  - apply_command
+  - validation
+  - readiness
+  - removal_criteria
+  - upgrade_notes
+
+readiness_classes:
+  temporary-local-only: Specific to this deployment; not expected upstream.
+  plugin-candidate: Should move to a PGEU plugin or extension point when one is
+    practical.
+  pull-request-candidate: Small and general enough to consider for upstream.
+  split-required: Contains multiple concerns that need separate plugin,
+    upstream PR, or local-only decisions before submission.
+
+validation:
+  commands:
+    - scripts/apply-pgeu-patches.sh "${PGEU_SOURCE_DIR}"
+    - git -C "${PGEU_SOURCE_DIR}" diff --stat
+    - git -C "${PGEU_SOURCE_DIR}" diff --check
+  expected_evidence:
+    - baseline ref match
+    - affected upstream paths
+    - reviewable diff summary
+    - diff consistency check
+  current_inventory: The overlay currently contains the Keycloak/OIDC provider,
+    dependency pin, OIDC logout, verified-email guard, global and scoped
+    Keycloak role synchronization with scoped grant provenance and identity
+    binding, and wiki edit
+    authorization patches listed above.
+
+upgrade_workflow:
+  - Create a separate OpenSpec change for the baseline move.
+  - Record the new upstream release, tag, or commit in this manifest.
+  - Apply the overlay to a clean checkout at the new baseline.
+  - Resolve conflicts by updating patch files or helper scripts.
+  - Re-run apply validation, git diff --stat, git diff --check, and relevant
+    application smoke tests.
+  - Update patch docs with removals, upstream superseded behavior, or changed
+    readiness status.
+
+notes:
+  upstream_readiness: Each future patch must be classified as temporary-local-only, plugin-candidate, or pull-request-candidate.
+  secret_policy: Patch files, helper scripts, and docs must not contain reusable secrets, local env values, private keys, or generated credential material.

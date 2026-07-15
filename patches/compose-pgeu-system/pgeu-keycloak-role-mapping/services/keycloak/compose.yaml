@@ -1,0 +1,92 @@
+services:
+  keycloak-db:
+    image: ${KEYCLOAK_DB_IMAGE:-postgres}:${KEYCLOAK_DB_IMAGE_TAG:-16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:-keycloak}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD_FILE: /run/secrets/keycloak_db_password
+    secrets:
+      - keycloak_db_password
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak}:${KEYCLOAK_IMAGE_TAG:-26.0}
+    restart: unless-stopped
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_DB: postgres
+      KC_DB_URL_DATABASE: ${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: https://${KEYCLOAK_HOST:-sso.fossnorth-pgeu.local}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KEYCLOAK_ADMIN_PASSWORD_FILE: /run/secrets/keycloak_admin_password
+      KC_DB_PASSWORD_FILE: /run/secrets/keycloak_db_password
+    entrypoint:
+      - /opt/keycloak/pgeu-entrypoint.sh
+    command:
+      - start-dev
+      - --import-realm
+      - --health-enabled=true
+    secrets:
+      - keycloak_admin_password
+      - keycloak_db_password
+    volumes:
+      - type: bind
+        source: ${KEYCLOAK_IMPORT_DIR:-./runtime/keycloak/import}
+        target: /opt/keycloak/data/import
+        read_only: true
+      - type: bind
+        source: ./services/keycloak/entrypoint.sh
+        target: /opt/keycloak/pgeu-entrypoint.sh
+        read_only: true
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${COMPOSE_EDGE_NETWORK:-fossnorth-pgeu-edge}
+      traefik.http.routers.keycloak-http.rule: Host(`${KEYCLOAK_HOST:-sso.fossnorth-pgeu.local}`)
+      traefik.http.routers.keycloak-http.entrypoints: web
+      traefik.http.routers.keycloak-http.middlewares: pgeu-https-redirect@file
+      traefik.http.routers.keycloak-http.service: keycloak
+      traefik.http.routers.keycloak.rule: Host(`${KEYCLOAK_HOST:-sso.fossnorth-pgeu.local}`)
+      traefik.http.routers.keycloak.entrypoints: websecure
+      traefik.http.routers.keycloak.tls: "true"
+      traefik.http.routers.keycloak.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-}
+      traefik.http.routers.keycloak.middlewares: pgeu-keycloak-headers@file,pgeu-compress@file
+      traefik.http.services.keycloak.loadbalancer.server.port: "8080"
+    networks:
+      - backend
+      - edge
+
+secrets:
+  keycloak_admin_password:
+    file: ${KEYCLOAK_ADMIN_PASSWORD_FILE:-./runtime/secrets/keycloak-admin-password}
+  keycloak_db_password:
+    file: ${KEYCLOAK_DB_PASSWORD_FILE:-./runtime/secrets/keycloak-db-password}
+
+volumes:
+  keycloak-db-data:
+
+networks:
+  backend:
+    name: ${COMPOSE_BACKEND_NETWORK:-fossnorth-pgeu-backend}
+  edge:
+    name: ${COMPOSE_EDGE_NETWORK:-fossnorth-pgeu-edge}

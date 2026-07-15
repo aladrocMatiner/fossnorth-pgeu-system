@@ -1,0 +1,123 @@
+services:
+  pgeu-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PGEU_DB_NAME:-pgeu}
+      POSTGRES_USER: ${PGEU_DB_USER:-pgeu}
+      POSTGRES_PASSWORD_FILE: /run/secrets/pgeu_db_password
+    secrets:
+      - pgeu_db_password
+    volumes:
+      - pgeu-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+
+  pgeu-web:
+    build:
+      context: ../..
+      dockerfile: services/pgeu/Dockerfile
+    image: ${PGEU_WEB_IMAGE:-compose-pgeu-system/pgeu-web:local}
+    restart: unless-stopped
+    depends_on:
+      pgeu-db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      PGEU_APP_DIR: /app
+      PGEU_DB_NAME: ${PGEU_DB_NAME:-pgeu}
+      PGEU_DB_USER: ${PGEU_DB_USER:-pgeu}
+      PGEU_DB_HOST: ${PGEU_DB_HOST:-pgeu-db}
+      PGEU_DB_PORT: ${PGEU_DB_PORT:-5432}
+      PGEU_DB_PASSWORD_FILE: /run/secrets/pgeu_db_password
+      PGEU_DJANGO_SECRET_KEY_FILE: /run/secrets/pgeu_django_secret_key
+      PGEU_HOST: ${PGEU_HOST:-pgeu.fossnorth-pgeu.local}
+      PGEU_SITE_BASE: ${PGEU_SITE_BASE:-https://pgeu.fossnorth-pgeu.local}
+      PGEU_ALLOWED_HOSTS: ${PGEU_ALLOWED_HOSTS:-pgeu.fossnorth-pgeu.local,localhost,127.0.0.1}
+      PGEU_CSRF_TRUSTED_ORIGINS: ${PGEU_CSRF_TRUSTED_ORIGINS:-https://pgeu.fossnorth-pgeu.local}
+      PGEU_DJANGO_DEBUG: ${PGEU_DJANGO_DEBUG:-false}
+      PGEU_ENABLE_MEMBERSHIP: ${PGEU_ENABLE_MEMBERSHIP:-true}
+      PGEU_ENABLE_ELECTIONS: ${PGEU_ENABLE_ELECTIONS:-true}
+      PGEU_DISABLE_HTTPS_REDIRECTS: ${PGEU_DISABLE_HTTPS_REDIRECTS:-false}
+      PGEU_SESSION_COOKIE_SECURE: ${PGEU_SESSION_COOKIE_SECURE:-true}
+      PGEU_CSRF_COOKIE_SECURE: ${PGEU_CSRF_COOKIE_SECURE:-true}
+      PGEU_STATIC_URL: ${PGEU_STATIC_URL:-/static/}
+      PGEU_AUTO_MIGRATE: ${PGEU_AUTO_MIGRATE:-true}
+      PGEU_AUTO_COLLECTSTATIC: ${PGEU_AUTO_COLLECTSTATIC:-true}
+      PGEU_INSTALL_REQUIREMENTS: ${PGEU_INSTALL_REQUIREMENTS:-true}
+      PGEU_BOOTSTRAP_PIP_PACKAGES: ${PGEU_BOOTSTRAP_PIP_PACKAGES:-setuptools<81 wheel}
+      PGEU_ENABLE_OAUTH_AUTH: ${PGEU_ENABLE_OAUTH_AUTH:-true}
+      PGEU_KEYCLOAK_BASE_URL: ${PGEU_KEYCLOAK_BASE_URL:-https://sso.fossnorth-pgeu.local/realms/pgeu}
+      PGEU_KEYCLOAK_CLIENT_ID: ${PGEU_KEYCLOAK_CLIENT_ID:-pgeu}
+      PGEU_KEYCLOAK_CLIENT_SECRET_FILE: /run/secrets/pgeu_keycloak_client_secret
+      PGEU_TRUST_BUNDLE_PATH: /run/pgeu-trust/root_ca.crt
+    secrets:
+      - pgeu_db_password
+      - pgeu_django_secret_key
+      - pgeu_keycloak_client_secret
+    volumes:
+      - type: bind
+        source: ${PGEU_SOURCE_DIR:-/srv/pgeu-system}
+        target: /app
+      - type: bind
+        source: ${PGEU_TRUST_BUNDLE_FILE:-./runtime/certs/stepca/root_ca.crt}
+        target: /run/pgeu-trust/root_ca.crt
+        read_only: true
+      - pgeu-python-venv:/opt/pgeu/venv
+      - pgeu-staticfiles:/var/lib/pgeu/staticfiles
+      - pgeu-media:/var/lib/pgeu/media
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${COMPOSE_EDGE_NETWORK:-fossnorth-pgeu-edge}
+      traefik.http.routers.pgeu-http.rule: Host(`${PGEU_HOST:-pgeu.fossnorth-pgeu.local}`)
+      traefik.http.routers.pgeu-http.entrypoints: web
+      traefik.http.routers.pgeu-http.middlewares: pgeu-https-redirect@file
+      traefik.http.routers.pgeu-http.service: pgeu
+      traefik.http.routers.pgeu.rule: Host(`${PGEU_HOST:-pgeu.fossnorth-pgeu.local}`)
+      traefik.http.routers.pgeu.entrypoints: websecure
+      traefik.http.routers.pgeu.tls: "true"
+      traefik.http.routers.pgeu.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-}
+      "traefik.http.routers.pgeu.tls.domains[0].main": ${PGEU_HOST:-pgeu.fossnorth-pgeu.local}
+      "traefik.http.routers.pgeu.tls.domains[0].sans": ${TRAEFIK_TLS_SANS:-sso.fossnorth-pgeu.local,traefik.fossnorth-pgeu.local,ca.fossnorth-pgeu.local}
+      traefik.http.routers.pgeu.middlewares: pgeu-secure-headers@file,pgeu-compress@file
+      traefik.http.services.pgeu.loadbalancer.server.port: "8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import socket; s=socket.create_connection(('127.0.0.1', 8000), 5); s.close()"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15m
+    networks:
+      - backend
+      - edge
+
+secrets:
+  pgeu_db_password:
+    file: ${PGEU_DB_PASSWORD_FILE:-./runtime/secrets/pgeu-db-password}
+  pgeu_django_secret_key:
+    file: ${PGEU_DJANGO_SECRET_KEY_FILE:-./runtime/secrets/pgeu-django-secret-key}
+  pgeu_keycloak_client_secret:
+    file: ${PGEU_KEYCLOAK_CLIENT_SECRET_FILE:-./runtime/secrets/pgeu-keycloak-client-secret}
+
+volumes:
+  pgeu-db-data:
+  pgeu-python-venv:
+  pgeu-staticfiles:
+  pgeu-media:
+
+networks:
+  backend:
+    name: ${COMPOSE_BACKEND_NETWORK:-fossnorth-pgeu-backend}
+  edge:
+    name: ${COMPOSE_EDGE_NETWORK:-fossnorth-pgeu-edge}

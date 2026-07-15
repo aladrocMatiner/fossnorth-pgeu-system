@@ -1,0 +1,61 @@
+diff --git a/postgresqleu/oauthlogin/oauthclient.py b/postgresqleu/oauthlogin/oauthclient.py
+index ac540fa4..c2ce6791 100644
+--- a/postgresqleu/oauthlogin/oauthclient.py
++++ b/postgresqleu/oauthlogin/oauthclient.py
+@@ -71,6 +71,10 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
+         token = oa.fetch_token(tokenurl,
+                                client_secret=client_secret,
+                                code=request.GET['code'])
++        if provider == 'keycloak':
++            id_token = token.get('id_token', '')
++            if id_token:
++                request.session['oauth_keycloak_id_token'] = id_token
+         if token.scope_changed:
+             log.warning("Oauth scope changed for {0} login from '{1}' to '{2}'".format(provider, token.old_scope, token.scope))
+ 
+@@ -95,6 +95,29 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
+         return HttpResponseRedirect(authorization_url)
+ 
+ 
++#
++# Keycloak login (generic OIDC)
++#
++def oauth_login_keycloak(request):
++    base = settings.OAUTH['keycloak']['baseurl'].rstrip('/')
++
++    def _keycloak_auth_data(oa):
++        r = oa.get('{0}/protocol/openid-connect/userinfo'.format(base)).json()
++        return (
++            r.get('email', ''),
++            r.get('given_name', ''),
++            r.get('family_name', ''),
++        )
++
++    return _login_oauth(
++        request,
++        'keycloak',
++        '{0}/protocol/openid-connect/auth'.format(base),
++        '{0}/protocol/openid-connect/token'.format(base),
++        ['openid', 'profile', 'email'],
++        _keycloak_auth_data)
++
++
+ #
+ # Generic Oauth1 provider
+ #
+diff --git a/tools/devsetup/dev_requirements.txt b/tools/devsetup/dev_requirements.txt
+index f701c469..b8bd024c 100644
+--- a/tools/devsetup/dev_requirements.txt
++++ b/tools/devsetup/dev_requirements.txt
+@@ -9,7 +9,10 @@ cryptography
+ flup
+ httplib2
+ psycopg2-binary
+-pycryptodomex==3.6.1
++pycryptodomex==3.19.1
++qrcode==7.4.2
++cairosvg==2.7.1
++PyMuPDF==1.24.9
+ reportlab>=3.5.59,<3.7
+ python-dateutil
+ requests

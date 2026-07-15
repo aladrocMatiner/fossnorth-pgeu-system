@@ -1,0 +1,35 @@
+diff --git a/postgresqleu/oauthlogin/oauthclient.py b/postgresqleu/oauthlogin/oauthclient.py
+index 8b472533..ad7179fa 100644
+--- a/postgresqleu/oauthlogin/oauthclient.py
++++ b/postgresqleu/oauthlogin/oauthclient.py
+@@ -173,16 +173,25 @@ def _login_oauth(request, provider, authurl, tokenurl, scope, authdatafunc):
+ #
+ # Keycloak login (generic OIDC)
+ #
++def _validated_keycloak_profile(profile):
++    email = profile.get('email', '').strip()
++    if not email:
++        raise OAuthException('Keycloak did not provide an email address')
++    if profile.get('email_verified') is not True:
++        raise OAuthException('Your Keycloak email address must be verified before you can log in')
++    return (
++        email,
++        profile.get('given_name', ''),
++        profile.get('family_name', ''),
++    )
++
++
+ def oauth_login_keycloak(request):
+     base = settings.OAUTH['keycloak']['baseurl'].rstrip('/')
+ 
+     def _keycloak_auth_data(oa):
+         r = oa.get('{0}/protocol/openid-connect/userinfo'.format(base)).json()
+-        return (
+-            r.get('email', ''),
+-            r.get('given_name', ''),
+-            r.get('family_name', ''),
+-        )
++        return _validated_keycloak_profile(r)
+ 
+     return _login_oauth(
+         request,

@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "path": "/pgeu/series/1/roles/admin",
+      "client_role": "pgeu-series-admin"
+    },
+    {
+      "path": "/pgeu/series/2/roles/admin",
+      "client_role": "pgeu-series-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2019iot/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2019iot/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2019iot/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2019iot/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2019iot/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2019iot/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2020/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2020/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2020/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2020/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2020/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2020/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2020ii/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2020ii/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2020ii/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2020ii/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2020ii/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2020ii/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2021/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2021/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2021/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2021/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2021/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2021/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2022/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2022/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2022/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2022/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2022/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2022/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2023/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2023/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2023/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2023/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2023/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2023/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2024/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2024/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2024/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2024/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2024/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2024/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2025/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2025/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2025/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2025/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2025/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2025/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    },
+    {
+      "path": "/pgeu/conferences/2026/roles/admin",
+      "client_role": "pgeu-conference-admin"
+    },
+    {
+      "path": "/pgeu/conferences/2026/roles/tester",
+      "client_role": "pgeu-conference-tester"
+    },
+    {
+      "path": "/pgeu/conferences/2026/roles/talkvoter",
+      "client_role": "pgeu-conference-talkvoter"
+    },
+    {
+      "path": "/pgeu/conferences/2026/roles/staff",
+      "client_role": "pgeu-conference-staff"
+    },
+    {
+      "path": "/pgeu/conferences/2026/roles/volunteer",
+      "client_role": "pgeu-conference-volunteer"
+    },
+    {
+      "path": "/pgeu/conferences/2026/roles/checkin-processor",
+      "client_role": "pgeu-conference-checkin-processor"
+    }
+  ]
+}
+
